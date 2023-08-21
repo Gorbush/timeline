@@ -17,7 +17,7 @@
 <template>
     <v-container fluid>
     <v-card flat>
-    <v-tabs v-model="tab">
+    <v-tabs v-model="tab" @change="changeTab">
         <v-tabs-slider></v-tabs-slider>
         <v-tab key="known">Known ({{knownPersons.length}})</v-tab>
         <v-tab key="confirm">To be confirmed ({{facesToConfirm.total}})</v-tab>
@@ -99,6 +99,10 @@
                                 Ignore All On Page
                                 <v-icon right>mdi-close</v-icon>
                             </v-btn>
+                            <v-btn @click="changeTab(2);" block text color="primary" >
+                                Refresh
+                                <v-icon right>mdi-refresh</v-icon>
+                            </v-btn>
                         </v-card-text>
                     </v-card>
                 </v-col>
@@ -108,7 +112,7 @@
                             <v-col
                                 v-for="face in mostRecentFaces.items" :key="face.id" class="d-flex child-flex"
                                 xs="3" md="2" lg="1" xl="1">
-                                <face-view @update="updateUnknownFaces" :face="face" 
+                                <face-view @update="updateUnknownFaces" :face="face"  :showFaceConfidence="true"
                                     :showAssetStamp="false" :showDistance="false" :miniVersion="true"></face-view>
                             </v-col>
                         </v-row>
@@ -119,7 +123,9 @@
                 <v-col :class="{ 'on-hover': hoverIgnoreAll }"
                     v-for="element in unknownFaces.items" :key="element.id" class="d-flex child-flex unknownFace"
                     xs="3" md="2" lg="2" xl="1">
-                    <face-view @update="updateUnknownFaces" :face="element" :showAssetStamp="true" :showDistance="true" :selectorText="'Whos is this'" ></face-view>
+                    <face-view @update="updateUnknownFaces" :face="element" :showAssetStamp="true" :showDistance="true" 
+                                :showFaceConfidence="true"
+                                :selectorText="'Whos is this'" ></face-view>
                 </v-col>
             </v-row>
             <v-row>
@@ -149,7 +155,7 @@
                 <v-col
                     v-for="face in recentFaces.items" :key="face.id" class="d-flex child-flex"
                     xs="3" md="2" lg="2" xl="1">
-                    <face-view @update="updateRecentFaces" :face="face" 
+                    <face-view @update="updateRecentFaces" :face="face"
                         :showAssetStamp="false" :showDistance="false" :miniVersion="true"></face-view>
                 </v-col>
             </v-row>
@@ -203,10 +209,6 @@
             this.$store.dispatch("getAllPersons");
             this.$store.dispatch("getPersons", {page: this.pageKnown, size: this.sizeKnown});
             this.$store.dispatch("getKnownPersons");
-            this.$store.dispatch("getAllUnknownFaces", {page: this.pageUnknown, size: this.sizeUnknown});
-            this.$store.dispatch("getFacesToConfirm", {page: this.pageConfirm, size: this.sizeConfirm});
-            this.$store.dispatch("getRecentFaces", {page: 1, size: this.sizeRecent});
-            this.$store.dispatch("getMostRecentFaces", {size: this.sizeRecent});
             this.setFacesSeen();
         },
 
@@ -272,7 +274,32 @@
                 this.$store.dispatch("getMostRecentFaces", {size: this.sizeRecent});
                 this.$store.dispatch("getAllUnknownFaces", {page: this.pageUnknown, size: this.sizeUnknown});
                 this.$emit("update");
-                this.close();
+            },
+
+            changeTab(tabIndex) {
+                console.log("Changing tab to ", tabIndex);
+                switch(tabIndex) {
+                    case 0: { // "known"
+                        this.$store.dispatch("getAllPersons");
+                        this.$store.dispatch("getPersons", {page: this.pageKnown, size: this.sizeKnown});
+                        this.$store.dispatch("getKnownPersons");
+                        break;                        
+                    }
+                    case 1: { // "confirm"
+                        this.$store.dispatch("getFacesToConfirm", {page: this.pageConfirm, size: this.sizeConfirm});
+                        break;                        
+                    }
+                    case 2: { // "unknown"
+                        this.$store.dispatch("getAllUnknownFaces", {page: this.pageUnknown, size: this.sizeUnknown});
+                        this.$store.dispatch("getMostRecentFaces", {size: this.sizeRecent});
+                        break;                        
+                    }
+                    case 3: { //"recent"
+                        this.$store.dispatch("getRecentFaces", {page: 1, size: this.sizeRecent});
+                        break;                        
+                    }
+                }
+                this.setFacesSeen();
             }
         }
     }
