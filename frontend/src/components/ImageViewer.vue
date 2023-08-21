@@ -22,8 +22,8 @@
                 <transition-group tag="div" class="img-slider" :name="transition">
                     <div :key="photo.id" :id="photo.id" class="img-cont"> 
                         <img :src="photoUrl(photo)" v-if="isPhoto" id="fullImage">
-                        <div id="fullImageCanvasHolder">
-                            <canvas id="faceOutlineCanvas" ></canvas>
+                        <div id="fullImageCanvasHolder" style="pointer-events:none;">
+                            <canvas id="faceOutlineCanvas" style="pointer-events:none;"></canvas>
                         </div>
                         <span v-if="!isPhoto" >
                             <v-icon v-if="videoMode == 'pause' && mousemove" style="z-index: 20; position: absolute; top: 50%; left: 50%;"  x-large @click="playVideo(true)">
