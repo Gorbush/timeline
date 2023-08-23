@@ -518,7 +518,16 @@ def known_persons():
 
 @blueprint.route('/person/<int:page>/<int:size>', methods=['GET'])
 def persons(page, size):
-    paginate = Person.query.filter(Person.ignore != True).order_by(Person.name)
+    filters = [ Person.ignore != True ]
+    person_id = request.args.get("filter.person_id")
+    if person_id:
+        filters.append( Person.id == person_id )
+    person_name = request.args.get("filter.person_name")
+    if person_name:
+        filters.append( Person.name.contains(person_name) )
+    paginate = Person.query.filter(and_(*filters)).order_by(Person.name)
+    from timeline.util.db import show_query
+    show_query(paginate)
     return jsonify_pagination(paginate, page, size)
 
 
@@ -595,13 +604,30 @@ def get_persons_by_asset(asset_id):
 @blueprint.route('/face/recent/<int:page>/<int:size>', methods=['GET'])
 def faces_recent(page, size):
     logger.debug("get recent faces up to %i", size)
-    # q = Face.query.join(Person).filter(and_(Face.person_id == Person.id, Face.updated.is_not(None), or_(
-    #     Face.confidence <= distance_safe()))).order_by(
-    #     Face.updated.desc())
-    # return jsonify_pagination(q, 1, size)
-    q = Face.query.filter(Face.updated.is_not(None)).order_by(Face.updated.desc())
-    logger.debug(q)
+    filters = [ Face.updated.is_not(None), Face.person_id == Person.id, Face.updated.is_not(None) ]
+    person_id = request.args.get("filter.person_id")
+    if person_id:
+        filters.append( Face.person_id == person_id )
+    person_name = request.args.get("filter.person_name")
+    if person_name:
+        filters.append( Person.name.contains(person_name) )
+        
+    if request.args.get("filter.switchNone") == 'false':
+        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_NONE )
+    if request.args.get("filter.switchMayBe") == 'false':
+        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_MAYBE )
+    if request.args.get("filter.switchSafe") == 'false':
+        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_SAFE )
+    if request.args.get("filter.switchVerySafe") == 'false':
+        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_VERY_SAFE )
+    if request.args.get("filter.switchConfirmed") == 'false':
+        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_CONFIRMED )
+      
+    q = Face.query.join(Person).filter(and_(*filters)).order_by(Face.updated.desc())
+    from timeline.util.db import show_query
+    show_query(q)
     paginate = q.paginate(page=page, per_page=size, error_out=False)
+    
     known_faces = find_all_classified_faces()
     
     list = []
