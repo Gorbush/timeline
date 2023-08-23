@@ -155,7 +155,7 @@
                 <v-col
                     v-for="face in recentFaces.items" :key="face.id" class="d-flex child-flex"
                     xs="3" md="2" lg="2" xl="1">
-                    <face-view @update="updateRecentFaces" :face="face"
+                    <face-view @update="updateRecentFaces" :face="face" :showFaceConfidence="true"
                         :showAssetStamp="false" :showDistance="false" :miniVersion="true"></face-view>
                 </v-col>
             </v-row>
