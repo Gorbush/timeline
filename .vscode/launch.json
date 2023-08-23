@@ -57,9 +57,13 @@
             "request": "launch",
             "module": "timeline.manage",
             "cwd": "${workspaceFolder}/backend",
+            "envFile": "${workspaceFolder}/backend/.env",
             "args": [
                 "watchdog"
-            ]
+            ],
+            "env": {
+                "DEBUG": "True"
+            }
         },
         {
             "name": "Worker",
@@ -68,6 +72,7 @@
             "module": "celery",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/backend",
+            "envFile": "${workspaceFolder}/backend/.env",
             "args": [
                 "-A",
                 "timeline.celery_process",
@@ -79,7 +84,10 @@
                 "worker@%n",
                 "-Q",
                 "beat,process,analyze,geo"
-            ]
+            ],
+            "env": {
+                "DEBUG": "True"
+            }
         },
         {
             "name": "Worker - Video",
@@ -88,6 +96,7 @@
             "module": "celery",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/backend",
+            "envFile": "${workspaceFolder}/backend/.env",
             "args": [
                 "-A",
                 "timeline.celery_video",
@@ -99,7 +108,10 @@
                 "video@%n",
                 "-Q",
                 "transcode_prio,transcode"
-            ]
+            ],
+            "env": {
+                "DEBUG": "True"
+            }
         },
         {
             "name": "Webapp",
@@ -107,11 +119,14 @@
             "request": "launch",
             "cwd": "${workspaceFolder}/backend",
             "module": "flask",
+            "envFile": "${workspaceFolder}/backend/.env",
             "env": {
                 "FLASK_APP": "timeline.app",
                 "FLASK_ENV": "development",
                 "FLASK_DEBUG": "1",
                 "APPLICATION_ROOT": "/timeline",
+                "FLASK_RUN_PORT": "5001",
+                "BE_PORT" : "5001",
             },
             "args": [
                 "run"
@@ -124,19 +139,31 @@
             "request": "launch",
             "cwd": "${workspaceFolder}/frontend",
             "type": "node-terminal",
+            "envFile": "${workspaceFolder}/backend/.env",
             "env": {
-                "TIMELINE_BASEPATH": "/timeline",
+                "TIMELINE_BASEPATH": "http://192.168.0.81:9093/timeline",
+                "BE_HOST": "192.168.0.81",
+                "BE_PORT": "5001",
+                // "BE_PORT": "9093",
+                // "BE_PORT": "5000",
+                "WAIT_HOSTS": "localhost:9093",
+                "WAIT_HOSTS_TIMEOUT": "180",
+                "WAIT_SLEEP_INTERVAL": "3",   
+                "WAIT_AFTER_HOSTS": "2"
             },
 
         },
         {
-            "name": "Python: Debug Current File",
+            "name": "Python: Run Test",
             "cwd": "${workspaceFolder}/backend",
             "type": "python",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": false
+            "justMyCode": false,
+            "env": {
+                "DEBUG": "True"
+            }
         },
         /*
         {

@@ -6,7 +6,7 @@ install:
 	cd frontend && make install
 
 
-clean: 
+clean:
 	read -p "Warning - it will remove all the previews, database and logs. ARE YOU SURE? " -n 1 -r
 	echo    # (optional) move to a new line
 	if [[ $REPLY =~ ^[Yy]$ ]]
@@ -19,16 +19,31 @@ build:
 	cd backend && make build
 	cd frontend && make build
 
-push:	
+push:
 	cd backend && make push
 	cd frontend && make push
+
+run-dev-support:
+	docker compose up -d redis db adminer rabbitmq transcoder
+
+run-dev-worker:
+	docker compose up -d worker
+
+run-org:
+	docker compose -f docker-compose.yml up -d
+
+down:
+	docker compose down
+
+up:
+	docker compose up -d
 
 download-model:
 	# this is only required if you want to develop locally and only once in the beginning
 	wget -O ssd.tgz "https://tfhub.dev/google/openimages_v4/ssd/mobilenet_v2/1?tf-hub-format=compressed"
-	mkdir -p models/thing/ssd
+	mkdir -p backend/models/thing/ssd
 	tar -xzf ssd.tgz -C backend/models/thing/ssd
-	rm ssd.tgz
+	#rm ssd.tgz
 
 	mkdir backend/models/facial
 

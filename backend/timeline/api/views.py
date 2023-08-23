@@ -476,7 +476,8 @@ def merge_persons(src_person_id, target_person_id):
     target_person = Person.query.get(target_person_id)
     for face in src_person.faces:
         face.person = target_person
-        face_assigned_by_human(face)
+        # That's not the case - why is this assumed by default?
+        # face_assigned_by_human(face)
     db.session.delete(src_person)
     db.session.commit()
     return flask.jsonify(True)
