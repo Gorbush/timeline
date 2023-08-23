@@ -1,4 +1,5 @@
 import axios from "axios";
+import { url_utils } from "../utils/url_utils"
 export const person = {
     state: {
         newFaces: false,
@@ -107,17 +108,24 @@ export const person = {
             }))
         },
 
-        getAllUnknownFaces(context, {page, size}) {
+        getAllUnknownFaces(context, {page, size, filters}) {
             let url = `/api/face/allUnknownAndClosest/${page}/${size}`;
-            axios.get(url).then( result => {
+            let args = "";
+            if (filters) {
+                args = url_utils.generateFilterArgs(filters);
+            }
+            axios.get(url+args).then( result => {
                 context.commit("setUnknownFaces", result.data);    
             })
-            
         },
 
-        getRecentFaces(context, {page, size}) {
+        getRecentFaces(context, {page, size, filters}) {
             let url = `/api/face/recent/${page}/${size}`;
-            axios.get(url).then( result => {
+            let args = "";
+            if (filters) {
+                args = url_utils.generateFilterArgs(filters);
+            }
+            axios.get(url+args).then( result => {
                 context.commit("setRecentFaces", result.data);    
             })
             
@@ -195,10 +203,13 @@ export const person = {
                 context.commit("setAllPersons", result.data);
             });
         },
-
-        getPersons(context, {page, size}) {
+        getPersons(context, {page, size, filters}) {
             let url = `/api/person/${page}/${size}`;
-            axios.get(url).then( result => {
+            let args = "";
+            if (filters) {
+                args = url_utils.generateFilterArgs(filters);
+            }
+            axios.get(url+args).then( result => {
                 context.commit("setPersons", result.data);    
             })
         },
