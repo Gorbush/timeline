@@ -604,7 +604,7 @@ def get_persons_by_asset(asset_id):
 @blueprint.route('/face/recent/<int:page>/<int:size>', methods=['GET'])
 def faces_recent(page, size):
     logger.debug("get recent faces up to %i", size)
-    filters = [ Face.updated.is_not(None), Face.person_id == Person.id, Face.updated.is_not(None) ]
+    filters = [ Face.updated.is_not(None), Face.person_id == Person.id ]
     person_id = request.args.get("filter.person_id")
     if person_id:
         filters.append( Face.person_id == person_id )

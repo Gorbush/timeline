@@ -5,7 +5,9 @@ export const url_utils = {
         }
         let args = '?';
         for (var name in filters) {
-            args += `&filter.${name}=${filters[name]}`
+            if (filters[name] !== null) {
+                args += `&filter.${name}=${filters[name]}`
+            }
         }
         return args;
     },
