@@ -9,3 +9,4 @@ backend/occurance2.csv
 backend/occurance.csv
 .history/
 /*.session.sql
+node_modules

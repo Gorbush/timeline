@@ -347,6 +347,7 @@
 
             changeTab(tabIndex) {
                 console.log("Changing tab to ", tabIndex);
+                window.axios_api_cache.clear_cache();
                 switch(tabIndex) {
                     case 0: { // "known"
                         this.$store.dispatch("getAllPersons");
