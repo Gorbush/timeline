@@ -47,6 +47,9 @@
                         xs="3" md="2" lg="1" xl="1">
                         <person-preview :person="person"></person-preview>
                     </v-col>
+                    <div class="persons-loading query-loading-spinner" visibility='hidden'>
+                        <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                    </div>
                 </v-row>
                 <v-row>
                     <v-col>
@@ -77,6 +80,9 @@
                     xs="3" md="2" lg="2" xl="1">
                     <face-view @update="updateFacesToConfirm" :face="face" :selectorText="'Correct?'" :showAssetStamp="true" :showDistance="true"></face-view>
                 </v-col>
+                <div class="confirmFaces-loading query-loading-spinner" visibility='hidden'>
+                    <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                </div>
             </v-row>
             <v-row>
                 <v-col>
@@ -120,6 +126,9 @@
                                     :showAssetStamp="false" :showDistance="false" :miniVersion="true"></face-view>
                             </v-col>
                         </v-row>
+                        <div class="mostRecentFaces-loading query-loading-spinner" visibility='hidden'>
+                            <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                        </div>
                     </v-container>
                 </v-col>
             </v-row>
@@ -131,6 +140,9 @@
                                 :showFaceConfidence="true"
                                 :selectorText="'Whos is this'" ></face-view>
                 </v-col>
+                <div class="unknownFaces-loading query-loading-spinner" visibility='hidden'>
+                    <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                </div>
             </v-row>
             <v-row>
                 <v-col>
@@ -167,6 +179,9 @@
                     <face-view @update="updateRecentFaces" :face="face" :showFaceConfidence="true"
                         :showAssetStamp="false" :showDistance="false" :miniVersion="true"></face-view>
                 </v-col>
+                <div class="recentFaces-loading query-loading-spinner" visibility='hidden'>
+                    <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                </div>
             </v-row>
             <v-row>
                 <v-col>
@@ -205,6 +220,7 @@
             return {
                 tab: 'groups',
                 hoverIgnoreAll: false,
+                recentMostFacesQuery: false,
                 knownPersonTab: {
                     size: 24,
                     page: 1,
@@ -300,7 +316,7 @@
                 unknownFaces: state => state.person.unknownFaces,
                 recentFaces: state => state.person.recentFaces,
                 mostRecentFaces: state => state.person.mostRecentFaces,
-                facesToConfirm: state => state.person.facesToConfirm
+                facesToConfirm: state => state.person.facesToConfirm,
             }),
         },
         methods: {
@@ -399,6 +415,7 @@
 .recentFaces {
     border: 1px solid #D0D0D0;
     border-radius: 10px;
+    min-height: 264px;
 }
 .filtersBox {
     border: 1px solid #D0D0D0;
@@ -406,5 +423,8 @@
 }
 .on-hover > div{
     background-color: #D0D0D0 !important;
+}
+.query-loading-spinner {
+    position: absolute;
 }
 </style>
