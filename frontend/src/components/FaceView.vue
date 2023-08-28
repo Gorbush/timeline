@@ -29,8 +29,9 @@
             <v-container fluid class="assetStamp" v-if="showAssetStamp">
                 {{assetStamp}}
             </v-container>
-            <v-container fluid :class="faceConfidence.class" v-if="showFaceConfidence">
+            <v-container fluid :class="faceConfidence.class" v-if="showFaceConfidence" >
                 <v-icon :color="faceConfidence.color" >{{faceConfidence.icon}}</v-icon>
+                <v-tooltip text="Tooltip">Tooll</v-tooltip>
             </v-container>
         </v-img>
         <face-name-selector :loaded="loaded" :closestPerson="face.person" @update="update" :face="face" :showDistance="showDistance" v-if="!miniVersion">{{selectorTextValue}}</face-name-selector>
@@ -50,6 +51,7 @@
                             :prevPhoto="null"
                             :direction="imageViewerDirection"
                             @close="closeViewer"
+                            @set-rating="setRating"
                             @left="navigate(-1)"
                             @right="navigate(1)">
             </image-viewer>
@@ -216,7 +218,13 @@
             },
             navigate(dir) {
                 console.log("Navigation clicked but not supported", dir)
-            }
+            },
+            setRating(value) {
+                this.$store.dispatch("setRating", {photo: this.currentPhotoAsset.photo, stars: value}).then( result => {
+                    this.$store.commit("currentPhotoAsset.photo", result);
+                });
+            },
+
         }
     }
 </script>
