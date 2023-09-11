@@ -78,7 +78,7 @@
                 <v-col
                     v-for="face in facesToConfirm.items" :key="face.id" class="d-flex child-flex"
                     xs="3" md="2" lg="2" xl="1">
-                    <face-view @update="updateFacesToConfirm" :face="face" :selectorText="'Correct?'" :showAssetStamp="true" :showDistance="true"></face-view>
+                    <face-view @update="updateFacesToConfirm" :face="face" :selectorText="'Correct?'" :showAssetStamp="true" :showDistance="true" :showFaceConfidence="true"></face-view>
                 </v-col>
                 <div class="confirmFaces-loading query-loading-spinner" visibility='hidden'>
                     <v-progress-circular color="primary" indeterminate></v-progress-circular>
