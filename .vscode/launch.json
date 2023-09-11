@@ -26,19 +26,18 @@
                 "head"
             ]
         },
-
         {
             "name": "DB Migrate",
             "type": "python",
             "request": "launch",
             "module": "timeline.manage",
+            "justMyCode": false,
             "cwd": "${workspaceFolder}/backend",
             "args": [
                 "db",
                 "migrate"
             ]
         },
-
         {
             "name": "DB Upgrade",
             "type": "python",
@@ -50,7 +49,6 @@
                 "upgrade"
             ]
         },
-
         {
             "name": "Watchdog",
             "type": "python",
@@ -119,15 +117,15 @@
             "request": "launch",
             "cwd": "${workspaceFolder}/backend",
             "module": "flask",
-            "envFile": "${workspaceFolder}/backend/.env",
             "env": {
                 "FLASK_APP": "timeline.app",
                 "FLASK_ENV": "development",
                 "FLASK_DEBUG": "1",
                 "APPLICATION_ROOT": "/timeline",
                 "FLASK_RUN_PORT": "5001",
-                "BE_PORT" : "5001",
+                "BE_PORT": "5001"
             },
+            "envFile": "${workspaceFolder}/backend/.env",
             "args": [
                 "run"
             ],
@@ -144,14 +142,12 @@
                 "TIMELINE_BASEPATH": "http://192.168.0.81:9093/timeline",
                 "BE_HOST": "192.168.0.81",
                 "BE_PORT": "5001",
-                // "BE_PORT": "9093",
-                // "BE_PORT": "5000",
+                "VUE_APP_TIMELINE_BASEPATH": "http://192.168.0.81:5001/timeline",
                 "WAIT_HOSTS": "localhost:9093",
                 "WAIT_HOSTS_TIMEOUT": "180",
-                "WAIT_SLEEP_INTERVAL": "3",   
+                "WAIT_SLEEP_INTERVAL": "3",
                 "WAIT_AFTER_HOSTS": "2"
-            },
-
+            }
         },
         {
             "name": "Python: Run Test",
@@ -165,38 +161,23 @@
                 "DEBUG": "True"
             }
         },
-        /*
         {
-            "type": "chrome",
+            "cwd": "${workspaceFolder}",
+            "name": "Launch Chrome",
             "request": "launch",
-            "name": "vuejs: chrome",
+            "type": "chrome",
             "url": "http://localhost:8080",
             "webRoot": "${workspaceFolder}/frontend/src",
             "breakOnLoad": true,
-            "pathMapping": {
-              "/_karma_webpack_": "${workspaceFolder}/frontend/src"
-            },
             "sourceMapPathOverrides": {
-              "webpack:/*": "${webRoot}/*",
-              "/./*": "${webRoot}/*",
-              "/src/*": "${webRoot}/*",
-              "/*": "*",
-              "/./~/*": "${webRoot}/node_modules/*"
-            },
-            // "preLaunchTask": "vuejs: start"
-          }
-          */
-          {
-              "cwd": "${workspaceFolder}",
-              "name": "Launch Chrome",
-              "request": "launch",
-              "type": "chrome",
-              "url": "http://localhost:8080",
-              "webRoot": "${workspaceFolder}/frontend/src",
-              "breakOnLoad": true,
-              "sourceMapPathOverrides": {
-              "webpack:///src/*": "${webRoot}/*"
-           }
-          },
+                "webpack:///src/*": "${webRoot}/*"
+            }
+        },
+        {
+            "type": "chrome",
+            "name": "http://192.168.0.81:8081/#/persons",
+            "request": "launch",
+            "url": "http://192.168.0.81:8081/#/persons"
+        }
     ]
 }
