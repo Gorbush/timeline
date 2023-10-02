@@ -2,6 +2,9 @@
 # This is for usage with docker, which is the preferred setzp
 # Adjust and rename/copy it to .env
 # -----
+# Version of the Docker container image
+IMAGE_VERSION=0.96
+
 # This is where to look for your photos and videos, nothing will be changed or modified here
 ASSET_PATH=/Users/johndoe/photos
 

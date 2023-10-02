@@ -10,13 +10,13 @@ install:
     rm ssd.tgz 
 
 build:
-	docker build . -t hulk66/timeline_be:0.96-dev
+	docker build . -t hulk66/timeline_be:${IMAGE_VERSION}
 
 build-base:
-	docker build . -f Dockerfile.be-base -t hulk66/timeline_be_base:0.96-dev
+	docker build . -f Dockerfile.be-base -t hulk66/timeline_be_base:${IMAGE_VERSION}
 
 build-prod:
-	docker build . -t hulk66/timeline_be:0.96
+	docker build . -t hulk66/timeline_be:${IMAGE_VERSION}
 
 push-prod:
-	docker push hulk66/timeline_be:0.96
+	docker push hulk66/timeline_be:${IMAGE_VERSION}

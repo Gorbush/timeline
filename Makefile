@@ -26,6 +26,10 @@ push:
 run-dev-support:
 	docker compose up -d redis db adminer rabbitmq transcoder
 
+db:
+	docker compose down
+	docker compose up -d db adminer
+
 run-dev-worker:
 	docker compose up -d worker
 
