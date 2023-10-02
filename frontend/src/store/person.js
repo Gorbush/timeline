@@ -1,5 +1,6 @@
 import axios from "axios";
-import { url_utils, axios_api_cache } from "../utils/url_utils"
+import { url_utils, axios_api_cache } from "../utils/url_utils";
+import { setActionOnFace, setActionOnPerson } from '../components/Util'
 
 axios_api_cache.configure_axios(axios, true);
 window.axios_api_cache = axios_api_cache;
@@ -16,6 +17,10 @@ export const person = {
         facesToConfirm: [],
         markMode: false,
         previewHeight: 100,
+        runtimeState: {
+            faces: {},
+            person: {}
+        },
     },
 
     mutations: {
@@ -51,7 +56,27 @@ export const person = {
 
         setPreviewHeight(state, v) {
             state.previewHeight = v;
-        }
+        },
+
+        setFaceStatus(state, {faceId, status}) {
+            console.log(`setFaceStatus(${faceId}, ${status})`);
+            if (status == "delete") {
+                delete state.runtimeState.faces[faceId];
+            } else {
+                state.runtimeState.faces[faceId] = status;
+            }
+            setActionOnFace(faceId, status, "");
+        },
+
+        setPersonStatus(state, {personId, status}) {
+            console.log(`setPersonStatus(${personId}, ${status})`);
+            if (status == "delete") {
+                delete state.runtimeState.persons[personId];
+            } else {
+                state.runtimeState.persons[personId] = status;
+            }
+            setActionOnPerson(personId, status, "");
+        },
     },
 
     actions: {
@@ -63,27 +88,30 @@ export const person = {
                     resolve(result.data);
                 })
             }))
-
         },
 
         ignoreFace(context, face) {
             let url = `/api/face/ignore/${face.id}`;
+            context.commit("setFaceStatus", { faceId: face.id, status: "running"});
             return new Promise((resolve => {
                 axios.get(url).then( result => {
+                    context.commit("setFaceStatus", { faceId: face.id, status: "delete"});
                     resolve(result.data);
                 })
             }))
-
         },
+
         resetFace(context, face) {
             let url = `/api/face/reset/${face.id}`;
+            context.commit("setFaceStatus", { faceId: face.id, status: "running"});
             return new Promise((resolve => {
                 axios.get(url).then( result => {
+                    context.commit("setFaceStatus", { faceId: face.id, status: "delete"});
                     resolve(result.data);
                 })
             }))
-
         },
+
         getClosestPerson(context, face) {
             let url = `/api/face/nearestKnownFaces/${face.id}`
             return new Promise((resolve => {
@@ -91,12 +119,14 @@ export const person = {
                     resolve(result.data);
                 })
             }))
-
         },
+
         forgetPerson(context, person) {
             let url = `/api/person/forget/${person.id}`
+            context.commit("setPersonStatus", { personId: person.id, status: "running"});
             return new Promise((resolve => {
                 axios.get(url).then( result => {
+                    context.commit("setPersonStatus", { personId: person.id, status: "delete"});
                     resolve(result.data);
                 })
             }))
@@ -104,8 +134,10 @@ export const person = {
 
         ignoreUnknownPerson(context, person) {
             let url = `/api/person/ignore_unknown_person/${person.id}`
+            context.commit("setPersonStatus", { personId: person.id, status: "running"});
             return new Promise((resolve => {
                 axios.get(url).then( result => {
+                    context.commit("setPersonStatus", { personId: person.id, status: "delete"});
                     resolve(result.data);
                 })
             }));
@@ -164,16 +196,17 @@ export const person = {
             let pid = null;
             if (person)
                 pid = person.id;
+            context.commit("setFaceStatus", { faceId: faceId, status: "running"});
             return new Promise((resolve => {
                 axios.post("/api/face/assign_face_to_person", {
                     personId: pid,
                     name: name,
                     faceId: faceId,
                 }).then( result => {
+                    context.commit("setFaceStatus", { faceId: faceId, status: "delete"});
                     resolve(result.data);
                 })
             }))
-
         },
 
         mergePerson(context, {src_person, target_person}) {
@@ -271,13 +304,16 @@ export const person = {
 
         getUnknownFaces(context, index) {
             return new Promise((resolve => {
-
                 axios.get("/api/cluster/faces/" + index).then((result) => {
                     resolve(result.data);
                 })
             }))
         },
 
-    }
+    },
+
+    computed: {
+    },
+
 }
   

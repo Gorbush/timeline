@@ -50,3 +50,73 @@ export function isVisible(el, percentX = 100, percentY=100){
     });
     return visibleInAllParents;
 }
+
+export function setActionOnFace(faceId, action, rootElement) {
+    let elementCss = `${rootElement}[face_id='${faceId}']`; 
+    let elements = document.querySelectorAll(elementCss);
+    for(let faceIndex = 0; faceIndex < elements.length; faceIndex++) {
+        let element = elements[faceIndex];
+        let plateElement = elements[faceIndex].parentElement;
+        switch (action) {
+            case "running": {
+                plateElement.style.border = "1px solid red";
+                break;
+            }
+            case "delete": {
+                plateElement.style.display = "none";
+                plateElement.style.border = "1px solid gray";
+                break;
+            }
+            case "hide": {
+                plateElement.style.visibility = "hidden";
+                break;
+            }
+            case "highlight": {
+                element.style.backgroundColor = "#D0D0D0";
+                break;
+            }
+            case "unhighlight": {
+                element.style.backgroundColor = "transparent";
+                break;
+            }
+            default: {
+                console.log(`Unknown action '${action}' requested on face ${faceId}.`)
+            }
+        }
+    }
+}
+
+export function setActionOnPerson(personId, action, rootElement) {
+    let elementCss = `${rootElement}[person_id='${personId}']`; 
+    let elements = document.querySelectorAll(elementCss);
+    for(let personIndex = 0; personIndex < elements.length; personIndex++) {
+        let element = elements[personIndex];
+        let plateElement = elements[personIndex].parentElement;
+        switch (action) {
+            case "running": {
+                plateElement.style.border = "1px solid red";
+                break;
+            }
+            case "delete": {
+                plateElement.style.display = "none";
+                plateElement.style.border = "1px solid gray";
+                break;
+            }
+            case "hide": {
+                plateElement.style.visibility = "hidden";
+                break;
+            }
+            case "highlight": {
+                element.style.backgroundColor = "#D0D0D0";
+                break;
+            }
+            case "unhighlight": {
+                element.style.backgroundColor = "transparent";
+                break;
+            }
+            default: {
+                console.log(`Unknown action '${action}' requested on person ${personId}.`)
+            }
+        }
+    }
+}

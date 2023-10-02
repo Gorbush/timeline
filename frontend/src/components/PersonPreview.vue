@@ -16,7 +16,7 @@
  */
 
 <template>
-    <v-card flat link>
+    <v-card flat link class="face_card" :person_id="person.id">
             <v-img link v-if="src" :src="src"  width="100%"  contain  @click="clickFace">
                 <template v-slot:placeholder>
                     <v-row
@@ -88,7 +88,8 @@
 </template>
 <script>
     import axios from "axios";
-    import { mapState } from 'vuex'
+    import { mapState } from 'vuex';
+
     export default {
         name: "PersonPreview",
 

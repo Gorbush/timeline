@@ -16,7 +16,7 @@
  */
 
 <template>
-    <v-card flat>
+    <v-card flat class="face_card" :face_id="face.id" :person_id="face.person_id">
         <v-img :src="src" :height="tileHeight" contain @load="loaded=true" @click="clickPhoto" >
             <template v-slot:placeholder>
                 <v-row
@@ -30,6 +30,7 @@
                 {{assetStamp}}
             </v-container>
             <v-container fluid :class="faceConfidence.class" v-if="showFaceConfidence" >
+                {{ runtimeState }}
                 <v-icon :color="faceConfidence.color" >{{faceConfidence.icon}}</v-icon>
                 <v-tooltip text="Tooltip">Tooll</v-tooltip>
             </v-container>
@@ -80,7 +81,7 @@
             showFaceConfidence: Boolean,
             showDistance: Boolean,
             selectorText: String,
-            miniVersion: Boolean
+            miniVersion: Boolean,
         },
 
         data() {
@@ -172,8 +173,16 @@
                     return this.face.person.name;
                 }
                 return "-----";
-            }
+            },
             
+            runtimeState() {
+                if (!this.$store.runtimeState || !this.$store.runtimeState.faces) {
+                    return "missing";
+                }
+                let status = this.$store.runtimeState.faces[this.face.id];
+                console.log(`RuntimeState face(${this.face.id}, ${status})`);
+                return status;
+            }
         },
         
         mounted() {
@@ -221,11 +230,17 @@
             },
             setRating(value) {
                 this.$store.dispatch("setRating", {photo: this.currentPhotoAsset.photo, stars: value}).then( result => {
-                    this.$store.commit("currentPhotoAsset.photo", result);
+                    this.$store.commit("setCurrentPhotoAsset", result);
                 });
             },
 
-        }
+        },
+
+        mutations: {
+            setCurrentPhotoAsset(state, v) {
+                state.currentPhotoAsset.photo = v;
+            }
+        },        
     }
 </script>
 

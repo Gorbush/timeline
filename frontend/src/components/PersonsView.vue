@@ -104,8 +104,8 @@
                         <v-card-text>
                             <div class="text-caption">{{unknownFaces.total}} unnamed Faces</div>
                             <v-btn @click="ignoreAllOnPage()" block text color="primary" 
-                                @mouseover="hoverIgnoreAll = true"
-                                @mouseleave="hoverIgnoreAll = false">
+                                @mouseover="highlightIgnoreAllOnPage(true)"
+                                @mouseleave="highlightIgnoreAllOnPage(false)">
                                 Ignore All On Page
                                 <v-icon right>mdi-close</v-icon>
                             </v-btn>
@@ -133,7 +133,7 @@
                 </v-col>
             </v-row>
             <v-row dense id="unknownFacesList">
-                <v-col :class="{ 'on-hover': hoverIgnoreAll }"
+                <v-col
                     v-for="element in unknownFaces.items" :key="element.id" class="d-flex child-flex unknownFace"
                     xs="3" md="2" lg="2" xl="1">
                     <face-view @update="updateUnknownFaces" :face="element" :showAssetStamp="true" :showDistance="true" 
@@ -205,6 +205,8 @@
     import { mapState } from 'vuex'
     import FaceView from './FaceView.vue';
     import FilterBox from './FilterBox.vue';
+    import { setActionOnFace } from "./Util";
+
     export default {
         name: "PersonsView",
 
@@ -219,7 +221,6 @@
         data() {
             return {
                 tab: 'groups',
-                hoverIgnoreAll: false,
                 recentMostFacesQuery: false,
                 knownPersonTab: {
                     size: 24,
@@ -344,11 +345,29 @@
             updateRecentFaces() {
                 this.$store.dispatch("getRecentFaces", {page: this.recentFacesTab.page, size: this.recentFacesTab.size, filters: this.recentFacesTab.filters});
             },
-            
+
+            highlightIgnoreAllOnPage(active) {
+                let self = this;
+                this.unknownFaces.items.forEach( faceInfo => {
+                    let status = self.$store.state.person.runtimeState.faces[faceInfo.id];
+                    if (status) {
+                        // already in progress
+                    } else {
+                        setActionOnFace(faceInfo.id, (active?"":"un") + "highlight", "");
+                    }
+                });
+            },
+
             ignoreAllOnPage() {
                 console.log("Ignoring all the faces: ", this.unknownFaces);
+                let self = this;
                 this.unknownFaces.items.forEach( faceInfo => {
-                    this.$store.dispatch("ignoreFace", faceInfo);
+                    let status = self.$store.state.person.runtimeState.faces[faceInfo.id];
+                    if (status) {
+                        // already in progress
+                    } else {
+                        self.$store.dispatch("ignoreFace", faceInfo);
+                    }
                 });
                 this.$store.dispatch("getPersons", {
                     page: this.knownPersonTab.page, 

@@ -119,7 +119,6 @@
                     this.$emit("update");
                     this.close();
                 })
-
             },
 
             assignFaceToPerson() {
