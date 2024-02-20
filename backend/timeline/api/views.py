@@ -280,6 +280,7 @@ def asset_by_face(id):
 def amend_query(request, q):
     fromDate = toDate = rating = None
     person_id = request.args.get("person_id")
+    asset_id = request.args.get("asset_id")
     thing_id = request.args.get("thing_id")
     country = request.args.get("country")
     county = request.args.get("county")
@@ -298,7 +299,7 @@ def amend_query(request, q):
     if toDate_s:
         toDate = datetime.strptime(toDate_s, "%Y-%m-%d")
 
-    q = refine_query(q, person_id = person_id, thing_id = thing_id, country = country, county = county, 
+    q = refine_query(q, person_id = person_id, asset_id = asset_id, thing_id = thing_id, country = country, county = county, 
                      city = city, state = state, camera = camera, rating = rating, fromDate = fromDate, toDate = toDate)
 
     if album_id:

@@ -32,6 +32,7 @@
                         :key="section.uuid"
                         :initialHeight="height(section)"
                         :filter-person-id="personId"
+                        :filter-asset-id="assetId"
                         :filter-thing-id="thingId"
                         :filter-album-id="albumId"
                         :city="city"
@@ -110,6 +111,7 @@
 
         props: {
             personId: Number,
+            assetId: Number,
             thingId: String,
             city: String,
             county: String,
@@ -701,6 +703,8 @@
                 // let self = this;
                 let params = {};
                 let config = { params: params};
+                if (!isNaN(this.assetId))
+                    params["asset_id"] = this.assetId;
                 if (!isNaN(this.personId))
                     params["person_id"] = this.personId;
                 params["thing_id"] = this.thingId; 

@@ -96,6 +96,7 @@ export default new Router({
 function castRouteParams(route) {
   return {
     personId: Number.parseInt(route.query.person_id) || null, 
+    assetId: Number.parseInt(route.query.asset_id) || null, 
     thingId: route.query.thing_id,
     city: route.query.city,
     county: route.query.county,
