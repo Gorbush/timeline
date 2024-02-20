@@ -101,7 +101,13 @@
 
                             <div>
                                 <v-card-text>
-                                    <div class="font-weight-bold">Details</div>
+                                    <div class="font-weight-bold">Details
+                                        <a :href="assetUrl">
+                                            <v-btn icon @click="clickAsset(photo.id)" v-if="photo.id">
+                                                <v-icon>mdi-open-in-app</v-icon>
+                                            </v-btn>
+                                        </a>
+                                    </div>
                                 <v-list-item two-line>
                                     <v-list-item-avatar>
                                         <v-icon>mdi-calendar</v-icon>
@@ -398,6 +404,10 @@
                     }
                 }
             },
+
+            assetUrl() {
+                return encodeURI("/#/wall?asset_id=" + this.photo.id)
+            }
         },
 
         watch: {
@@ -494,6 +504,10 @@
 
             clickFace(face) {
                 this.$router.push({name:'wall', query:{ person_id: face.person_id}});
+            },
+
+            clickAsset(asset_id) {
+                this.$router.push({name:'wall', query:{ asset_id: asset_id}});
             },
 
             setPerson() {
