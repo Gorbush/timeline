@@ -226,6 +226,18 @@ class Tag(db.Model, SerializerMixin):
         'Asset', secondary=asset_tag, back_populates='tags')
     serialize_rules = ('-assets',)    
 
+class AssetDuplicate(db.Model, SerializerMixin):
+    __tablename__ = 'asset_duplicate'
+    path = db.Column(db.String(512), primary_key=True)
+    asset_id = db.Column(db.Integer, db.ForeignKey('assets.id'), primary_key=False)
+    dup_asset_id = db.Column(db.Integer)
+    dup_kind = db.Column(db.String(50))
+    created = db.Column(db.DateTime)
+
+    def __repr__(self):
+        return "<AssetPath(Path='%s', AssetId='%s', Kind='%s')>" % (
+            self.path, self.asset_id, self.dup_kind)
+
 class Asset(db.Model, SerializerMixin):
     __tablename__ = 'assets'
 
@@ -266,6 +278,7 @@ class Asset(db.Model, SerializerMixin):
         'Album', secondary=asset_album, back_populates='assets')
     tags = db.relationship(
         'Tag', secondary=asset_tag, back_populates='assets')
+    duplicates = db.relationship("AssetDuplicate", cascade="all, delete, delete-orphan")
     section_id = db.Column(db.Integer, db.ForeignKey('section.id'))
     section = db.relationship("Section", back_populates="assets")
     no_creation_date = db.Column(db.Boolean)
