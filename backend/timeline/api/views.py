@@ -248,7 +248,7 @@ def all_assets(page=0, size=30):
 
 @blueprint.route('/asset/data/<int:id>', methods=['GET'])
 def asset_data(id):
-    logger.debug("asset data")
+    logger.debug(f"asset data {id}")
     asset = Asset.query.get(id)
     return flask.jsonify(asset.to_dict())
 
