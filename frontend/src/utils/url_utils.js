@@ -22,7 +22,26 @@ export const url_utils = {
                 els[0].style.visibility = 'hidden';
             }
         }
-    }
+    },
+
+    addParamsToLocation(router, route, params) {
+        let query = {...route.query};
+         Object.keys(params).forEach( (key) => {
+            query[key] = params[key];
+          });
+        router.push({ query: query });
+    },
+
+    removeParamsFromLocation(router, route, keysToDelete) {
+        let query = {...route.query};
+        keysToDelete
+              .forEach( (key) => {
+                delete query[key];
+              });
+        
+        router.push({ query: query });
+    },
+    
 };
 
 
