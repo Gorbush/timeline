@@ -279,6 +279,14 @@ export const person = {
             }))
         },
 
+        getAssetDuplicates(context, photo) {
+            return new Promise((resolve => {
+                axios.get("/api/asset/duplicates/" + photo.checksum).then((result) =>{
+                    resolve(result.data);
+                })
+            }))
+        },
+
         getAllTags() { //context
             return new Promise((resolve => {
                 axios.get("/api/tags").then((result) =>{

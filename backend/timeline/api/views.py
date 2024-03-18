@@ -239,6 +239,12 @@ def get_things_for_asset(id):
     asset = Asset.query.get(id)
     return jsonify_items(asset.things)
 
+@blueprint.route('/asset/duplicates/<string:hash>', methods=['GET'])
+def get_duplicates_for_hash(hash):
+    assets = Asset.query.filter(
+            Asset.checksum == hash).order_by(Asset.path.asc(), Asset.created.desc())
+    return jsonify_items(assets)
+
 
 @blueprint.route('/asset/all/<int:page>/<int:size>', methods=['GET'])
 def all_assets(page=0, size=30):

@@ -254,6 +254,35 @@
                     </v-col>
                 </v-row>
             </v-col>
+            <v-col class="noscroll ma-2" fill-height>
+                <v-row fill-height>
+                    <v-col class="scroll ma-2" fill-height v-if="duplicatesList">
+                        Simple List of Duplicates
+                        <div 
+                            v-for="(assetDup, index) in duplicatesList" 
+                            :index="index" 
+                            :key="assetDup.path"
+                            :ref="'p' + index">
+                            <v-card >
+                                <v-card-title>{{assetDup.path}}</v-card-title>
+                                <v-card-text>
+                                    <tile v-if="assetDup"
+                                    :target-height="previewHeight" 
+                                    @set-rating="setRating"
+                                    @click-photo="clickPhoto"
+                                    :asset="assetDup"
+                                    >
+                                    </tile> 
+                                </v-card-text>
+                                <v-card-actions>
+                                    <v-spacer></v-spacer>
+                                    <!-- <v-btn color="warning" text @click="deleteassets">Delete</v-btn> -->
+                                </v-card-actions>
+                            </v-card>
+                        </div>  
+                    </v-col>
+                </v-row>
+            </v-col>
             
             <div class="noscroll timelineContainer ma-2" 
                 ref="timelineContainer"
@@ -343,6 +372,7 @@
                 photo_faces: null,
                 exif: [],
                 faceEditId: null,
+                duplicatesList: null,
                 // ---
                 min_date: null,
                 max_date: null,
@@ -443,6 +473,9 @@
                     }));
                     this.$store.dispatch("getAllTags").then((tags => {
                         self.tags = tags;
+                    }));
+                    this.$store.dispatch("getAssetDuplicates", this.asset).then((duplicatesList => {
+                        self.duplicatesList = duplicatesList;
                     }));
                     this.$store.dispatch("getFacesByPhoto", this.asset).then((faces => {
                         this.photo_faces = faces;
