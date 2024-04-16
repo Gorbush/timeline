@@ -21,11 +21,11 @@
             <v-col style="position: relative" fill-height>
                 <transition-group tag="div" class="img-slider" :name="transition">
                     <div :key="photo.id" :id="photo.id" class="img-cont" :asset_id="photo.id"> 
-                        <img :src="photoUrl(photo)" v-if="isPhoto" id="fullImage">
+                        <img :src="photoUrl(photo)" v-if="isPhoto(this.photo)" id="fullImage" alt="asset image" />
                         <div id="fullImageCanvasHolder">
                             <canvas id="faceOutlineCanvas" ></canvas>
                         </div>
-                        <span v-if="!isPhoto" >
+                        <span v-if="!isPhoto(this.photo)" >
                             <v-icon v-if="videoMode == 'pause' && mousemove" style="z-index: 20; position: absolute; top: 50%; left: 50%;"  x-large @click="playVideo(true)">
                                 mdi-play-circle
                             </v-icon>
@@ -102,7 +102,7 @@
                             <div>
                                 <v-card-text>
                                     <div class="font-weight-bold">Details
-                                        <a :href="assetUrl">
+                                        <a :href="wallUrl(this.photo)">
                                             <v-btn icon @click="clickAsset(photo.id)" v-if="photo.id">
                                                 <v-icon>mdi-open-in-app</v-icon>
                                             </v-btn>
@@ -126,7 +126,7 @@
                                     </v-list-item-content>
                                 </v-list-item>
                                 <!-- repair this; information is also available for Videos but not as exif -->
-                                <v-list-item two-line v-if="isPhoto">
+                                <v-list-item two-line v-if="isPhoto(this.photo)">
                                     <v-list-item-avatar>
                                         <v-icon>mdi-camera</v-icon>
                                     </v-list-item-avatar>
@@ -138,7 +138,7 @@
                                         </v-list-item-subtitle>
                                     </v-list-item-content>            
                                 </v-list-item>
-                                <v-list-item three-line v-if=isPhoto>
+                                <v-list-item three-line v-if="isPhoto(this.photo)">
                                     <v-list-item-avatar>
                                         <v-icon>mdi-camera-iris</v-icon>
                                     </v-list-item-avatar>
@@ -265,7 +265,7 @@
                                                 <v-img :src="faceUrl(face.id)"></v-img>
                                             </v-list-item-avatar>
                                             <v-list-item-content dense>
-                                                <span v-if="editId == face.id">
+                                                <span v-if="faceEditId == face.id">
                                                     <v-combobox  :search-input.sync="faceName"
                                                         :items="knownPersons"
                                                         item-text="name"
@@ -285,7 +285,7 @@
                                                 </span>
                                             </v-list-item-content>
                                             <v-list-item-action class="no-wrap flex-nowrap flex-sm-nowrap flex-row align-center" dense>
-                                                <v-btn v-if="editId != face.id" icon @click="edit(face)" dense>
+                                                <v-btn v-if="faceEditId != face.id" icon @click="edit(face)" dense>
                                                     <v-icon>mdi-pencil</v-icon>
                                                 </v-btn>
                                                 <v-btn v-else icon @click="setPerson">
@@ -313,9 +313,11 @@
 </template>
 
 <script>
-    import moment from "moment"
     import 'vuelayers/lib/style.css' // needs css-loader
     import { mapState } from 'vuex'
+    import { date_utils } from "../utils/date_utils"
+    import { asset_utils } from "../utils/asset_utils"
+    // import { url_utils } from '../utils/url_utils'
 
     export default {
         name: "ImageViewer",
@@ -345,7 +347,7 @@
                 rotation: 0,
                 faceName: "",
                 newPerson: null,
-                editId: 0,
+                faceEditId: 0,
                 prevImage: null,
                 nextImage: null,
                 mousemove: false,
@@ -366,6 +368,9 @@
             .then((tags => {
                 this.tags = tags;
             }));
+            // if (this.photo) {
+            //     url_utils.addParamsToLocation(this.$router, this.$route, { 'asset_id': this.photo.id});
+            // }
         },
 
         computed: {
@@ -383,12 +388,7 @@
             },
 
             videoSource() {
-                return this.isPhoto ? null : encodeURI(this.$basePath +"/assets/video/full/" + this.photo.path + ".mp4");
-
-            },
-
-            isPhoto() {
-                return this.photo.asset_type == 'jpg' || this.photo.asset_type == 'heic';
+                return asset_utils.isPhoto(this.photo) ? null : encodeURI(this.$basePath +"/assets/video/full/" + this.photo.path + ".mp4");
             },
 
             assetTags: {
@@ -405,9 +405,6 @@
                 }
             },
 
-            assetUrl() {
-                return encodeURI("/#/wall?asset_id=" + this.photo.id)
-            }
         },
 
         watch: {
@@ -439,6 +436,8 @@
         },
 
         methods: {
+            ...date_utils,
+            ...asset_utils,
             setAssetTags(tagsList) {
                 console.log("SetTags ", tagsList);
                 let tagNames = tagsList.map( (tag) => tag.name ? tag.name : tag );
@@ -488,7 +487,7 @@
             },
 
             edit(face) {
-                this.editId = face.id;
+                this.faceEditId = face.id;
                 if (face.person) {
                     // this.oldPersonId = face.person.id;
                     this.newPerson = face.person;
@@ -514,7 +513,7 @@
                 this.$store.dispatch("assignFaceToPerson", {
                     person:this.newPerson, 
                     name:this.faceName, 
-                    faceId:this.editId }
+                    faceId:this.faceEditId }
                 ).then(() => {
                     this.getKnownPersons();
                     this.getFacesByPhoto(this.photo);                     
@@ -560,28 +559,8 @@
 
             getKnownPersons() {
                 this.$store.dispatch("getAllPersons");
-                this.editId = 0;
+                this.faceEditId = 0;
                 this.faceName = "";
-            },
-
-            date(d) {
-                return moment(d).format("DD.MM.YYYY");
-            },
-
-            time(d) {
-                return moment(d).format("dddd, H:mm");
-            },
-
-            photoUrl(photo) {
-                if (photo)
-                    if (photo.asset_type == "mp4" || photo.asset_type == "mov")
-                        return encodeURI(this.$basePath +"/assets/video/full/" + photo.path + ".mp4");
-                    else
-                        return encodeURI(this.$basePath +"/assets/full/" + photo.path);
-            },
-
-            faceUrl(id) {
-                return this.$basePath + "/api/face/preview/80/" + id + ".png";
             },
 
             left() {
@@ -595,7 +574,8 @@
             close() {
                 if (this.photo.asset_type == 'mov' || this.photo.asset_type =='mp4')
                     this.$refs.video.pause();
-                this.$emit('close')
+                this.$emit('close');
+                // url_utils.removeParamsFromLocation(this.$router, this.$route, [ 'asset_id' ]);
             },
             
             clearFaceOutline() {
