@@ -14,6 +14,7 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 '''
+from timeline.api.util import to_bool
 from timeline.domain import Status, Album
 from timeline.event_handler import EventHandler
 import click
@@ -47,7 +48,7 @@ def watchdog():
     polling = current_app.config.get("POLLING")
     path = current_app.config.get("ASSET_PATH")
     initial_scan = current_app.config.get("INITIAL_SCAN")
-    if initial_scan:
+    if to_bool(initial_scan):
         click.echo("Performing Initial Scan")
         inital_scan(path)
         click.echo("Initial Scan done")
