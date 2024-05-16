@@ -17,6 +17,7 @@ GNU General Public License for more details.
 
 from celery.signals import celeryd_after_setup, worker_process_init, worker_init
 
+from timeline.util.otel import sub_span
 from timeline.util.path_util import get_preview_path
 from timeline.util.path_util import get_full_path
 from timeline.domain import Asset, TranscodingStatus
@@ -50,71 +51,75 @@ def init_worker(**kwargs):
 
 @celery.task(name="Create Preview Video")
 def create_preview_video(asset_id, max_dim: int) -> None:
-    asset = Asset.query.get(asset_id)
-    path = get_full_path(asset.path)
+    with sub_span("[celery] create_preview_video") as span:
+        span.set_attribute("face_id", asset_id)
+        asset = Asset.query.get(asset_id)
+        path = get_full_path(asset.path)
 
-    # generate a static jpg preview image
-    logger.debug("Create jpg preview %s", asset.path)
-    preview_path = get_preview_path(
-        asset.path, ".jpg", str(max_dim), "high_res")
-    os.makedirs(os.path.dirname(preview_path), exist_ok=True)
-    hw_accel = flask_app.config['FFMPEG_HWACCEL']
+        # generate a static jpg preview image
+        logger.debug("Create jpg preview %s", asset.path)
+        preview_path = get_preview_path(
+            asset.path, ".jpg", str(max_dim), "high_res")
+        os.makedirs(os.path.dirname(preview_path), exist_ok=True)
+        hw_accel = flask_app.config['FFMPEG_HWACCEL']
 
-    ffmpeg.input(path).filter("scale", -2, max_dim).output(preview_path, map_metadata=0, threads=1,
-                                                           movflags="use_metadata_tags", vframes=1, loglevel="error").overwrite_output().run(cmd=nice_ffmpeg)
+        ffmpeg.input(path).filter("scale", -2, max_dim).output(preview_path, map_metadata=0, threads=1,
+                                                            movflags="use_metadata_tags", vframes=1, loglevel="error").overwrite_output().run(cmd=nice_ffmpeg)
 
-    # also generate a very low res resolution preview jpg for fast loading
-    #preview_path = get_preview_path(
-    #    asset.path, ".jpg", str(max_dim), "low_res")
-    #os.makedirs(os.path.dirname(preview_path), exist_ok=True)
-    #ffmpeg.input(path).filter("scale", -2, max_dim/10).output(preview_path, map_metadata=0, threads=1,
-    #                                                          movflags="use_metadata_tags", vframes=1, loglevel="error").overwrite_output().run(cmd=nice_ffmpeg)
+        # also generate a very low res resolution preview jpg for fast loading
+        #preview_path = get_preview_path(
+        #    asset.path, ".jpg", str(max_dim), "low_res")
+        #os.makedirs(os.path.dirname(preview_path), exist_ok=True)
+        #ffmpeg.input(path).filter("scale", -2, max_dim/10).output(preview_path, map_metadata=0, threads=1,
+        #                                                          movflags="use_metadata_tags", vframes=1, loglevel="error").overwrite_output().run(cmd=nice_ffmpeg)
 
-    # finally generate a preview mp4 and strip the audio
-    logger.debug("Create mp4 preview for hovering %s", asset.path)
-    preview_path = get_preview_path(asset.path, ".mp4", "video", "preview")
-    os.makedirs(os.path.dirname(preview_path), exist_ok=True)
-    ffmpeg.input(path).filter("scale", -2, max_dim).output(preview_path, map_metadata=0, loglevel="error",
-                                                           vcodec=hw_accel,
-                                                           movflags="+faststart +use_metadata_tags",
-                                                           pix_fmt="yuv420p", t=5).overwrite_output().global_args("-an").run(cmd=nice_ffmpeg)
+        # finally generate a preview mp4 and strip the audio
+        logger.debug("Create mp4 preview for hovering %s", asset.path)
+        preview_path = get_preview_path(asset.path, ".mp4", "video", "preview")
+        os.makedirs(os.path.dirname(preview_path), exist_ok=True)
+        ffmpeg.input(path).filter("scale", -2, max_dim).output(preview_path, map_metadata=0, loglevel="error",
+                                                            vcodec=hw_accel,
+                                                            movflags="+faststart +use_metadata_tags",
+                                                            pix_fmt="yuv420p", t=5).overwrite_output().global_args("-an").run(cmd=nice_ffmpeg)
 
-    asset.video_preview_generated = True
-    db.session.commit()
-    logger.debug("Create jpg preview %s is done", asset.path)
+        asset.video_preview_generated = True
+        db.session.commit()
+        logger.debug("Create jpg preview %s is done", asset.path)
 
 @celery.task(name="Create Fullscreen Video")
 def create_fullscreen_video(asset_id) -> None:
-    asset = Asset.query.get(asset_id)
-    logger.debug("Create video preview %s", asset.path)
+    with sub_span("[celery] create_fullscreen_video") as span:
+        span.set_attribute("face_id", asset_id)
+        asset = Asset.query.get(asset_id)
+        logger.debug("Create video preview %s", asset.path)
 
-    logger.debug("Convert to browser compatible mp4 %s", asset.path)
+        logger.debug("Convert to browser compatible mp4 %s", asset.path)
 
-    if asset.video_fullscreen_transcoding_status == TranscodingStatus.STARTED or asset.video_fullscreen_transcoding_status == TranscodingStatus.DONE:
-        logger.debug("Nothing to be done. Video is either already transcoded or manually triggered")
-        return
-        
-    path = get_full_path(asset.path)
-    asset.video_fullscreen_transcoding_status = TranscodingStatus.STARTED
-    asset.video_fullscreen_generated_progress = 50 # replace this later when we have a progress
-    db.session.commit()
+        if asset.video_fullscreen_transcoding_status == TranscodingStatus.STARTED or asset.video_fullscreen_transcoding_status == TranscodingStatus.DONE:
+            logger.debug("Nothing to be done. Video is either already transcoded or manually triggered")
+            return
+            
+        path = get_full_path(asset.path)
+        asset.video_fullscreen_transcoding_status = TranscodingStatus.STARTED
+        asset.video_fullscreen_generated_progress = 50 # replace this later when we have a progress
+        db.session.commit()
 
-    hw_accel = flask_app.config['FFMPEG_HWACCEL']
-    # For the conversion with ffmpeg limit everything to just 1 thread
-    # otherwise it will span multiple thread per conversion
-    # this wil slow down the system too much
+        hw_accel = flask_app.config['FFMPEG_HWACCEL']
+        # For the conversion with ffmpeg limit everything to just 1 thread
+        # otherwise it will span multiple thread per conversion
+        # this wil slow down the system too much
 
-    # convert in any case (mp4 or mov); not all mp4 are playable in the browser
-    # convet mov to mp4 to have it playable in the browser
-    preview_path = get_preview_path(asset.path, ".mp4", "video", "full")
-    os.makedirs(os.path.dirname(preview_path), exist_ok=True)
-    ffmpeg.input(path).output(preview_path, loglevel="error", vcodec=hw_accel, acodec="aac",
-                              pix_fmt="yuv420p", movflags="faststart +use_metadata_tags").overwrite_output().run(cmd=nice_ffmpeg)
+        # convert in any case (mp4 or mov); not all mp4 are playable in the browser
+        # convet mov to mp4 to have it playable in the browser
+        preview_path = get_preview_path(asset.path, ".mp4", "video", "full")
+        os.makedirs(os.path.dirname(preview_path), exist_ok=True)
+        ffmpeg.input(path).output(preview_path, loglevel="error", vcodec=hw_accel, acodec="aac",
+                                pix_fmt="yuv420p", movflags="faststart +use_metadata_tags").overwrite_output().run(cmd=nice_ffmpeg)
 
-    asset.video_fullscreen_transcoding_status = TranscodingStatus.DONE
-    asset.video_fullscreen_generated_progress = 100 # replace this later when we have a progress
-    db.session.commit()
-    logger.debug("Create video preview %s is done", asset.path)
+        asset.video_fullscreen_transcoding_status = TranscodingStatus.DONE
+        asset.video_fullscreen_generated_progress = 100 # replace this later when we have a progress
+        db.session.commit()
+        logger.debug("Create video preview %s is done", asset.path)
 
 
 flask_app = create_app()

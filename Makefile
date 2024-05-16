@@ -21,6 +21,10 @@ build:
 	cd backend && make build
 	cd frontend && make build
 
+build-base:
+	(cd config/rabbitmq && docker build . -t hulk66/timeline_rabbitmq:0.96-dev)
+	cd backend && make build-base
+
 rebuild:
 	docker compose down worker frontend transcoder watchdog webapp
 	cd backend && make build
@@ -31,19 +35,19 @@ push:
 	cd backend && make push
 	cd frontend && make push
 
-run-dev-support:
+run-dev-support: signoz-start
 	docker compose up -d redis db adminer rabbitmq
 
-run-dev-worker:
+run-dev-worker :
 	docker compose up -d worker
 
 down:
 	docker compose down
 
-up:
+up: signoz-start
 	docker compose up -d
 
-up-storage:
+up-storage: signoz-start
 	docker compose up -d redis db adminer rabbitmq
 
 download-model:
@@ -63,3 +67,15 @@ download-model:
 
 make-dev-dirs:
 	scripts/setup-dev-dirs.sh
+
+
+signoz-start:
+	cd signoz && docker compose -f docker-compose.yaml up -d
+
+signoz-run:
+	cd signoz && docker compose -f docker-compose.yaml up
+
+signoz-down:
+	cd signoz && docker compose -f docker-compose.yaml down
+
+

@@ -21,6 +21,7 @@ from timeline.extensions import celery
 from timeline.tasks.crud_tasks import create_asset, create_preview
 from timeline.util.asset_creation_result import AssetCreationResult
 from timeline.util.asset_utils import dedup_header
+from timeline.util.otel import sub_span
 from pymysql.err import InternalError, OperationalError
 from celery import signature
 logger = logging.getLogger(__name__)
@@ -29,21 +30,32 @@ logger = logging.getLogger(__name__)
 # retry in some cases the database throws a lock error
 @celery.task(autoretry_for=(InternalError, OperationalError), name="Process Asset", ignore_result=True)
 def new_asset(path):
-    if '@eaDir' in path or '@__thumb' in path or "@Recycle" in path or "@Transcode" in path:
-        logger.debug(
-            "Not taking %s into account as this is some QNAP or Synology related file", path)
-    else:
-        logger.debug("Start processing asset %s", path)
-        result : AssetCreationResult = create_asset(path)
-        if result.asset_id and result.created_in_db:
-            logger.debug("Scheduling consequent tasks for asset %s", path)
-            asset = Asset.query.get(result.asset_id)
-            create_preview(result.asset_id)
-            celery.send_task("Check GPS", (result.asset_id,), queue="geo", headers=dedup_header(result.asset.path, "geo"))
-            if asset.is_photo():
-                celery.send_task("Face Detection", (result.asset_id,), queue="analyze", headers=dedup_header(result.asset.path, "analyze-face"))
-                celery.send_task("Object Detection", (result.asset_id,), queue="analyze", headers=dedup_header(result.asset.path, "analyze-obj"))
-                celery.send_task("Quality Assessment", (result.asset_id,), queue="analyze", headers=dedup_header(result.asset.path, "analyze-quality"))
+    with sub_span("[celery] new_asset") as span:
+        span.set_attribute("path", path)
+        if '@eaDir' in path or '@__thumb' in path or "@Recycle" in path or "@Transcode" in path:
+            logger.debug(
+                "Not taking %s into account as this is some QNAP or Synology related file", path)
+            span.set_attribute("skipped", True)
+        else:
+            span.set_attribute("skipped", False)
+            logger.debug("Start processing asset %s", path)
+            result : AssetCreationResult = create_asset(path)
+            span.set_attribute("asset_id", result.asset_id)
+            span.set_attribute("invalid", result.invalid)
+            span.set_attribute("created_in_db", result.created_in_db)
+            span.set_attribute("exists_in_db", result.exists_in_db)
+            span.set_attribute("file_present", result.file_present)
+            span.set_attribute("versions_applied", ",".join(map(str, result.versions_applied)))
+            span.set_attribute("version_in_db", result.version_in_db)
+            if result.asset_id and result.created_in_db:
+                logger.debug("Scheduling consequent tasks for asset %s", path)
+                asset = Asset.query.get(result.asset_id)
+                create_preview(result.asset_id)
+                celery.send_task("Check GPS", (result.asset_id,), queue="geo", headers=dedup_header(result.asset.path, "geo"))
+                if asset.is_photo():
+                    celery.send_task("Face Detection", (result.asset_id,), queue="analyze", headers=dedup_header(result.asset.path, "analyze-face"))
+                    celery.send_task("Object Detection", (result.asset_id,), queue="analyze", headers=dedup_header(result.asset.path, "analyze-obj"))
+                    celery.send_task("Quality Assessment", (result.asset_id,), queue="analyze", headers=dedup_header(result.asset.path, "analyze-quality"))
 
-            # celery.send_task("timeline.tasks.iq_tasks.brisque_score", (asset_id,), queue="iq", headers=dedup_header(result.asset.path, "iq-brisque"))
+                # celery.send_task("timeline.tasks.iq_tasks.brisque_score", (asset_id,), queue="iq", headers=dedup_header(result.asset.path, "iq-brisque"))
 

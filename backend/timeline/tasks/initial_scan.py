@@ -18,6 +18,7 @@ GNU General Public License for more details.
 
 import logging
 from timeline.extensions import celery
+from timeline.util.otel import sub_span
 from pathlib import Path
 import random
 logger = logging.getLogger(__name__)
@@ -25,15 +26,17 @@ logger = logging.getLogger(__name__)
 
 @celery.task(name="Initial Scan", ignore_result=True)
 def inital_scan(path, patterns=["*.mov", "*.MOV", "*.mp4", "*.MP4", "*.jpg", "*.jpeg", "*.JPG", "*.JPEG",  "*.heic", "*.HEIC"]):
-    logger.debug("Performing initial scan for directory %s", path)
-    files = []
-    for file_type in patterns:
-        files.extend(Path(path).rglob(file_type))
-    # shuffle the list to now have all video at once
-    random.shuffle(files)
+    with sub_span("[celery] inital_scan") as span:
+        span.set_attribute("path", path)
+        logger.debug("Performing initial scan for directory %s", path)
+        files = []
+        for file_type in patterns:
+            files.extend(Path(path).rglob(file_type))
+        # shuffle the list to now have all video at once
+        random.shuffle(files)
 
-    logger.info("Found %i files", len(files))
-    for file in files:
-        celery.send_task("Process Asset", (str(file),), queue="process")
-        # new_asset.apply_async((str(file),), queue="process")
-    logger.debug("Initial Scan done")
+        logger.info("Found %i files", len(files))
+        for file in files:
+            celery.send_task("Process Asset", (str(file),), queue="process")
+            # new_asset.apply_async((str(file),), queue="process")
+        logger.debug("Initial Scan done")

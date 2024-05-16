@@ -23,6 +23,7 @@ import geopy.geocoders
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from timeline.domain import Asset
 from timeline.extensions import celery, db
+from timeline.util.otel import sub_span
 
 logger = logging.getLogger(__name__)
 
@@ -40,29 +41,33 @@ def check_and_set(dest, name, src):
 
 @celery.task(name="Check GPS")
 def check_gps(asset_id):
-    asset = Asset.query.get(asset_id)
-    if not asset:
-        logger.warning("Can't check GPS data, asset may have been removed?")
-        return
+    with sub_span("[celery] check_gps") as span:
+        span.set_attribute("asset_id", asset_id)
+        asset = Asset.query.get(asset_id)
+        if not asset:
+            logger.warning("Can't check GPS data, asset may have been removed?")
+            return
 
-    if asset.gps_id:
-        logger.debug("asset contains GPS data, scheduling reverse lookup: %s", asset.path)
-        resolve_address.apply_async((asset_id,), queue='geo')
-    else:
-        logger.debug("asset contains no GPS data, nothing to do: %s", asset.path)
+        if asset.gps_id:
+            logger.debug("asset contains GPS data, scheduling reverse lookup: %s", asset.path)
+            resolve_address.apply_async((asset_id,), queue='geo')
+        else:
+            logger.debug("asset contains no GPS data, nothing to do: %s", asset.path)
 
 
 @celery.task(rate_limit="1/s", autoretry_for=(GeocoderTimedOut,GeocoderServiceError), name="Address Detection", ignore_result=True)
 def resolve_address(asset_id):
-    asset = Asset.query.get(asset_id)
-    if not asset:
-        logger.warning("Can not geo locate, asset may have been removed?")
-        return
+    with sub_span("[celery] resolve_address") as span:
+        span.set_attribute("asset_id", asset_id)
+        asset = Asset.query.get(asset_id)
+        if not asset:
+            logger.warning("Can not geo locate, asset may have been removed?")
+            return
 
-    logger.debug("Resolving GPS address for %s", asset.path)
-    location = geolocator.reverse((asset.gps.latitude, asset.gps.longitude), timeout=10)
-    asset.gps.display_address = location.address
-    for part in ('city', 'country', 'country_code', 'road', 'state', 'postcode', 'county', 'village', 'municipality'):
-        check_and_set(asset.gps, part, location.raw['address'])
-    db.session.commit()
-    logger.debug("Address resolved for %s", asset.path)
+        logger.debug("Resolving GPS address for %s", asset.path)
+        location = geolocator.reverse((asset.gps.latitude, asset.gps.longitude), timeout=10)
+        asset.gps.display_address = location.address
+        for part in ('city', 'country', 'country_code', 'road', 'state', 'postcode', 'county', 'village', 'municipality'):
+            check_and_set(asset.gps, part, location.raw['address'])
+        db.session.commit()
+        logger.debug("Address resolved for %s", asset.path)

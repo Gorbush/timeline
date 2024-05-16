@@ -18,6 +18,7 @@ GNU General Public License for more details.
 import datetime
 from timeline.util.asset_utils import dedup_header
 from timeline.util.gps import get_labeled_exif
+from timeline.util.otel import sub_span
 import flask
 import io
 from flask import Blueprint, abort
@@ -239,33 +240,41 @@ def upload():
     asset_path = current_app.config['asset_PATH']
     upload_folder = current_app.config['UPLOAD_FOLDER']
     files = request.files.getlist("files")
-    for file in files:
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)   
-            logger.debug("Upload %s", filename)
+    with sub_span(f"[http] upload files count={len(files)}"):
+        i = 0
+        for file in files:
+            with sub_span(f"[http] upload file index={i}/{len(files)}") as span:
+                i = i + 1
+                if file and allowed_file(file.filename):
+                    span.set_attribute("file.name", file.filename)
+                    span.set_attribute("file.size", file.content_length)
+                    filename = secure_filename(file.filename)   
+                    logger.debug("Upload %s", filename)
 
-            in_memory  = io.BytesIO()
-            file.save(in_memory)  
-            image = Image.open(in_memory)
-            exif_raw = image.getexif()
-            exif_data = get_labeled_exif(exif_raw)
-            dt = datetime.datetime.today()
-            if "DateTimeOriginal" in exif_data:
-                date_time = exif_data["DateTimeOriginal"]
+                    in_memory  = io.BytesIO()
+                    file.save(in_memory)  
+                    image = Image.open(in_memory)
+                    exif_raw = image.getexif()
+                    exif_data = get_labeled_exif(exif_raw)
+                    dt = datetime.datetime.today()
+                    if "DateTimeOriginal" in exif_data:
+                        date_time = exif_data["DateTimeOriginal"]
 
-                try:
-                    # set asset date
-                    dt = parse_exif_date(date_time)
-                except ValueError:
-                    logger.error("%s can not be parsed as Date for %s",
-                                str(date_time), filename)
-            # logger.debug("Save file under %s/%s/%d/%d/%s", asset_path, upload_folder, dt.year, dt.month, filename)
-            dest_filename = os.path.join(asset_path, upload_folder, str(dt.year), str(dt.month), filename)
-            os.makedirs(os.path.dirname(dest_filename), exist_ok=True)
-            fout = open(dest_filename, "wb")
-            fout.write(in_memory.getbuffer())
-            fout.close()
+                        try:
+                            # set asset date
+                            dt = parse_exif_date(date_time)
+                        except ValueError:
+                            logger.error("%s can not be parsed as Date for %s",
+                                        str(date_time), filename)
+                    span.set_attribute("file.date", dt.strftime("%m/%d/%Y, %H:%M:%S"))
+                    # logger.debug("Save file under %s/%s/%d/%d/%s", asset_path, upload_folder, dt.year, dt.month, filename)
+                    dest_filename = os.path.join(asset_path, upload_folder, str(dt.year), str(dt.month), filename)
+                    span.set_attribute("file.target", dest_filename)
+                    os.makedirs(os.path.dirname(dest_filename), exist_ok=True)
+                    fout = open(dest_filename, "wb")
+                    fout.write(in_memory.getbuffer())
+                    fout.close()
 
-    return flask.jsonify(True)
+        return flask.jsonify(True)
 
 

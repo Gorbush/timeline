@@ -24,6 +24,7 @@ from timeline.tasks.match_tasks import do_background_face_tasks
 from timeline.tasks.classify_tasks import init_classify_services
 from timeline.tasks.face_tasks import init_vgg_face, init_face_age_gender
 from timeline.tasks.iq_tasks import init_iq
+from timeline.util.otel import root_span, sub_span
 import timeline.tasks.geo_tasks
 import timeline.tasks.match_tasks
 import timeline.tasks.process_tasks
@@ -70,20 +71,22 @@ def init_worker(**kwargs):
         processes as needed.
         More info: https://docs.sqlalchemy.org/en/latest/core/pooling.html#using-connection-pools-with-multiprocessing
     """
-    # The "with" here is for a flask app using Flask-SQLAlchemy.  If you don't
-    # have a flask app, just remove the "with" here and call .dispose()
-    # on your SQLAlchemy db engine.
     logger.debug("Initialize Worker")
-    with flask_app.app_context():
-        db.engine.dispose()
-
-    init_face_age_gender()
-    init_iq()
-    init_classify_services(flask_app.config['OBJECT_DETECTION_MODEL_PATH'])
-    init_vgg_face()
-    logger.debug("Initialize Worker - done")
+    with root_span('init_worker'):
+        # The "with" here is for a flask app using Flask-SQLAlchemy.  If you don't
+        # have a flask app, just remove the "with" here and call .dispose()
+        # on your SQLAlchemy db engine.
+        with flask_app.app_context():
+            db.engine.dispose()
+        init_face_age_gender()
+        init_iq()
+        init_classify_services(flask_app.config['OBJECT_DETECTION_MODEL_PATH'])
+        init_vgg_face()
+        logger.debug("Initialize Worker - done")
  
-
-flask_app = create_app()
-logger = logging.getLogger(__name__) 
-setup()
+with root_span('init_celery_process'):
+    with sub_span('init_flask'):
+        flask_app = create_app()
+    logger = logging.getLogger(__name__) 
+    with sub_span('setup'):
+        setup()

@@ -19,19 +19,23 @@ import imagehash
 import logging
 from timeline.domain import Photo
 from timeline.extensions import celery, db
+from timeline.util.otel import sub_span
 from timeline.util.path_util import get_full_path
 
 logger = logging.getLogger(__name__)
 
 
 @celery.task(name="Generate pHash")
-def generate_phash(photo_id):
-    photo = Photo.query.get(photo_id)
-    if not photo:
-        logger.warning("Can't generate pHash, photo may have been removed?")
-        return
-    logger.debug("Generate pHash for Photo %s", photo.path)
-    path = get_full_path(photo.path)
-    hash = imagehash.phash(path)
-    photo.phash = str(hash)
+def generate_phash(asset_id):
+    with sub_span("[celery] generate_phash") as span:
+        span.set_attribute("asset_id", asset_id)
+        photo = Photo.query.get(asset_id)
+        if not photo:
+            logger.warning("Can't generate pHash, photo may have been removed?")
+            return
+        span.set_attribute("photo", photo.path)
+        logger.debug("Generate pHash for Photo %s", photo.path)
+        path = get_full_path(photo.path)
+        hash = imagehash.phash(path)
+        photo.phash = str(hash)
 

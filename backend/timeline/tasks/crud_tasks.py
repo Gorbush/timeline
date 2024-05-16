@@ -24,6 +24,7 @@ from pathlib import Path
 from celery import chain
 from flask import current_app
 from PIL import Image
+from timeline.util.otel import sub_span
 from timeline.api.inspect import get_queue_len
 from timeline.config import PROCESSING_QUEUE_SECTIONING_TRESHOLD
 
@@ -39,89 +40,98 @@ from celery import signature
 from celery import chain
 from celery.exceptions import SoftTimeLimitExceeded
 from distutils.util import strtobool
+from opentelemetry.sdk.trace import Status as SpanStatus, StatusCode
 
 logger = logging.getLogger(__name__)
 
 
 def create_asset(path: str, commit=True) -> AssetCreationResult:
-    logger.debug("Reading asset %s", path)
-    result = AssetCreationResult()
-    result.path = path
-    if not Path(path).exists():
-        logger.warning("File does not exist: %s", path)
-        result.file_present = False
-        return result
-    result.file_present = True
-    img_path = get_rel_path(path)
-
-    asset = Asset.query.filter(Asset.path == img_path).first()
-    result.exists_in_db = asset != None
-    if asset:
-        result.version_in_db = asset.version
-        if asset.version >= CURRENT_VERSION:
-            logger.info("Asset already exists %s. Skipping", img_path)
+    with sub_span("create_asset") as span:
+        span.set_attribute("path", path)
+        logger.debug("Reading asset %s", path)
+        result = AssetCreationResult()
+        result.path = path
+        if not Path(path).exists():
+            logger.warning("File does not exist: %s", path)
+            result.file_present = False
             return result
+        result.file_present = True
+        img_path = get_rel_path(path)
+
+        with sub_span("asset_db_find"):
+            asset = Asset.query.filter(Asset.path == img_path).first()
+        result.exists_in_db = asset != None
+        if asset:
+            result.version_in_db = asset.version
+            if asset.version >= CURRENT_VERSION:
+                span.add_event("already_exists, current version")
+                logger.info("Asset already exists %s. Skipping", img_path)
+                return result
+            else:
+                span.add_event(f"already_exists, updating {asset.version} < {CURRENT_VERSION}")
+                logger.info("Asset already exists %s. Updating because version is lower than currently supported %d < %d", 
+                            img_path, asset.version, CURRENT_VERSION)
         else:
-            logger.info("Asset already exists %s. Updating because version is lower than currently supported %d < %d", 
-                        img_path, asset.version, CURRENT_VERSION)
-    else:
-        logger.debug("Asset is new %s. Processing", path)
-    if not os.path.exists(path):
-        logger.error("File not found: %s", path)
-        result.file_present = False
-        return result
+            logger.debug("Asset is new %s. Processing", path)
+        if not os.path.exists(path):
+            logger.error("File not found: %s", path)
+            result.file_present = False
+            return result
 
-    # db.session.rollback()
-    asset = populate_asset(asset, result)
-   
-    new_asset = not asset.id
-    # asset.directory = os.path.
-    # sort_asset_into_date_range(asset, commit = False)
-    if new_asset:
-        db.session.add(asset)
-        # Doing the reverse assignment, as assets list in the album is much bigger than the reverse - so it's faster
-        album = get_last_import()
-        asset.albums.append(album)
+        # db.session.rollback()
+        asset = populate_asset(asset, result)
+    
+        new_asset = not asset.id
+        # asset.directory = os.path.
+        # sort_asset_into_date_range(asset, commit = False)
+        if new_asset:
+            db.session.add(asset)
+            # Doing the reverse assignment, as assets list in the album is much bigger than the reverse - so it's faster
+            album = get_last_import()
+            asset.albums.append(album)
+            if commit:
+                # perform already a commit, so that in case a parallel worker inserts something in
+                # the section and we get a duplicate error, the photo is already there
+                # and will be inserted in the next round
+                db.session.commit()
+            insert_asset_into_section(asset)
+
         if commit:
-            # perform already a commit, so that in case a parallel worker inserts something in
-            # the section and we get a duplicate error, the photo is already there
-            # and will be inserted in the next round
             db.session.commit()
-        insert_asset_into_section(asset)
 
-    if commit:
-        db.session.commit()
-
-    result.asset_id = asset.id
-    result.asset = asset
-    return result
+        result.asset_id = asset.id
+        result.asset = asset
+        return result
 
 
 @celery.task(name="Extract Exif Data for all assets")
 def extract_exif_all_assets(overwrite):
-    logger.debug("Extract Exif and GPS for all assets")
-    for asset in Asset.query:
-        c = chain(
-            signature("Extract Exif", args=(
-                asset.id, overwrite), queue='process'),
-            signature("Check GPS", args=(asset.id,),
-                      queue="analyze", immutable=True)
-        )
-        c.apply_async()
-    logger.debug("Extract Exif and GPS for all assets is done")
+    with sub_span("[celery] extract_exif_all_assets"):
+        logger.debug("Extract Exif and GPS for all assets")
+        for asset in Asset.query:
+            c = chain(
+                signature("Extract Exif", args=(
+                    asset.id, overwrite), queue='process'),
+                signature("Check GPS", args=(asset.id,),
+                        queue="analyze", immutable=True)
+            )
+            c.apply_async()
+        logger.debug("Extract Exif and GPS for all assets is done")
 
 
 @celery.task(name="Extract Exif")
 def extract_exif_data(asset_id, overwrite):
-    logger.debug(f"Extract Exif for {asset_id}")
-    asset = Asset.query.get(asset_id)
-    if not asset:
-        logger.warning("asset with ID %d does not exist", asset_id)
-        return
-    if overwrite or not asset.exif:
-        _extract_image_exif_data(asset)
-    db.session.commit()
-    logger.debug(f"Extract Exif for {asset_id} is done")
+    with sub_span("[celery] extract_exif_data") as span:
+        span.set_attribute("asset_id", asset_id)
+        logger.debug(f"Extract Exif for {asset_id}")
+        asset = Asset.query.get(asset_id)
+        if not asset:
+            logger.warning("asset with ID %d does not exist", asset_id)
+            return
+        if overwrite or not asset.exif:
+            _extract_image_exif_data(asset)
+        db.session.commit()
+        logger.debug(f"Extract Exif for {asset_id} is done")
 
 
 def insert_asset_into_section(asset):
@@ -228,37 +238,44 @@ def _delete_asset_by_path(path):
 
 @celery.task(mame="Delete asset")
 def delete_asset_by_path(img_path, commit=True):
-    logger.debug("Delete asset %s", img_path)
-    path = get_rel_path(img_path)
-    _delete_asset_by_path(path)
+    with sub_span("[celery] delete_asset_by_path") as span:
+        span.set_attribute("path", img_path)
+        logger.debug("Delete asset %s", img_path)
+        path = get_rel_path(img_path)
+        _delete_asset_by_path(path)
 
-    Status.query.first().sections_dirty = True
-    if commit:
-        db.session.commit()
-    logger.debug("Delete asset %s is done", img_path)
+        Status.query.first().sections_dirty = True
+        if commit:
+            db.session.commit()
+        logger.debug("Delete asset %s is done", img_path)
 
 
 @celery.task(mame="Modify asset")
 def modify_asset(img_path):
-    logger.debug("Modify asset %s", img_path)
+    with sub_span("[celery] modify_asset") as span:
+        span.set_attribute("path", img_path)
+        logger.debug("Modify asset %s", img_path)
 
-    delete_asset(img_path)
-    create_asset(img_path, commit=False)
-    db.session.commit()
-    logger.debug("Modify asset %s id done", img_path)
+        delete_asset(img_path)
+        create_asset(img_path, commit=False)
+        db.session.commit()
+        logger.debug("Modify asset %s id done", img_path)
 
 
 @celery.task(name="Move asset")
 def move_asset(img_path_src, img_path_dest):
-    logger.debug("Move asset from %s to %s", img_path_src, img_path_dest)
-    path = get_rel_path(img_path_src)
-    assets = Asset.query.filter(Asset.path == path).all()
+    with sub_span("[celery] move_asset") as span:
+        span.set_attribute("path", img_path_src)
+        span.set_attribute("img_path_dest", img_path_dest)
+        logger.debug("Move asset from %s to %s", img_path_src, img_path_dest)
+        path = get_rel_path(img_path_src)
+        assets = Asset.query.filter(Asset.path == path).all()
 
-    if len(assets) > 0:
-        assets[0].path = get_rel_path(img_path_dest)
-    Status.query.first().sections_dirty = True
-    db.session.commit()
-    logger.debug("Move asset from %s to %s is done", img_path_src, img_path_dest)
+        if len(assets) > 0:
+            assets[0].path = get_rel_path(img_path_dest)
+        Status.query.first().sections_dirty = True
+        db.session.commit()
+        logger.debug("Move asset from %s to %s is done", img_path_src, img_path_dest)
 
 def sort_asset_into_date_range_task(asset_id):
     asset = Asset.query.get(asset_id)
@@ -391,24 +408,25 @@ def sort_asset_into_date_range(asset, commit=True):
 
 @celery.task(name="Sort old assets to end")
 def sort_old_assets():
-    logger.debug("Sort undated assets")
-    status = Status.query.first()
-    if not status.sections_dirty:
-        logger.debug("sort_old_assets - nothing to do")
-        return
+    with sub_span("[celery] sort_old_assets"):
+        logger.debug("Sort undated assets")
+        status = Status.query.first()
+        if not status.sections_dirty:
+            logger.debug("sort_old_assets - nothing to do")
+            return
 
-    oldest_asset = Asset.query.filter(
-        and_(Asset.ignore == False, Asset.created != None)).order_by(Asset.created.asc()).first()
-    if not oldest_asset:
-        return
-    min_date = oldest_asset.created - timedelta(days=1)
-    assets = Asset.query.filter(Asset.no_creation_date == True)
+        oldest_asset = Asset.query.filter(
+            and_(Asset.ignore == False, Asset.created != None)).order_by(Asset.created.asc()).first()
+        if not oldest_asset:
+            return
+        min_date = oldest_asset.created - timedelta(days=1)
+        assets = Asset.query.filter(Asset.no_creation_date == True)
 
-    for asset in assets:
-        asset.created = min_date
-        min_date -= timedelta(seconds=1)
+        for asset in assets:
+            asset.created = min_date
+            min_date -= timedelta(seconds=1)
 
-    db.session.commit()
+        db.session.commit()
 
 
 def new_import():
@@ -422,146 +440,148 @@ def new_import():
 
 @celery.task(ignore_result=True)
 def compute_sections():
-    logger.debug("Sectioning assets")
+    with sub_span("[celery] compute_sections"):
+        logger.debug("Sectioning assets")
 
-    status = Status.query.first()
+        status = Status.query.first()
 
-    if not status.sections_dirty and Asset.query.filter(Asset.section == None).count() == 0:
-        logger.debug("Sectioning assets - nothing to do")
-        status.next_import_is_new = True
+        if not status.sections_dirty and Asset.query.filter(Asset.section == None).count() == 0:
+            logger.debug("Sectioning assets - nothing to do")
+            status.next_import_is_new = True
+            db.session.commit()
+
+            # if there is nothing new it is a good point to start the event finder
+            celery.send_task("Find Events", queue="beat")        
+            return
+        
+        process_queue_len = get_queue_len("beat")
+        if process_queue_len > PROCESSING_QUEUE_SECTIONING_TRESHOLD:
+            logger.debug("Processing queue is greater than treshold %d . Skipping sectioning for now.", PROCESSING_QUEUE_SECTIONING_TRESHOLD)
+            return
+        
+        sort_old_assets()
+
+        status.in_sectioning = True
         db.session.commit()
 
-        # if there is nothing new it is a good point to start the event finder
-        celery.send_task("Find Events", queue="beat")        
-        return
-    
-    process_queue_len = get_queue_len("beat")
-    if process_queue_len > PROCESSING_QUEUE_SECTIONING_TRESHOLD:
-        logger.debug("Processing queue is greater than treshold %d . Skipping sectioning for now.", PROCESSING_QUEUE_SECTIONING_TRESHOLD)
-        return
-    
-    sort_old_assets()
+        batch_size = int(current_app.config['SECTION_TARGET_SIZE'])
+        current_section = 1
+        # Get all assets sorted descending, meaning the newest first
+        assets = Asset.query.filter(Asset.ignore == False).order_by(
+            Asset.created.desc()).limit(batch_size).all()
+        while len(assets) > 0:
+            process_queue_len = get_queue_len("beat")
+            if process_queue_len > PROCESSING_QUEUE_SECTIONING_TRESHOLD:
+                logger.debug("Processing queue is greater than treshold %d . Stopping sectioning for now.", PROCESSING_QUEUE_SECTIONING_TRESHOLD)
+                status.in_sectioning = False
+                db.session.commit()
+                return
+            section = Section.query.get(current_section)
+            if not section:
+                logger.debug("Creating new Section")
+                section = Section()
+                section.id = current_section
+                db.session.add(section)
 
-    status.in_sectioning = True
-    db.session.commit()
+            oldest_asset = assets[-1]
 
-    batch_size = int(current_app.config['SECTION_TARGET_SIZE'])
-    current_section = 1
-    # Get all assets sorted descending, meaning the newest first
-    assets = Asset.query.filter(Asset.ignore == False).order_by(
-        Asset.created.desc()).limit(batch_size).all()
-    while len(assets) > 0:
-        process_queue_len = get_queue_len("beat")
-        if process_queue_len > PROCESSING_QUEUE_SECTIONING_TRESHOLD:
-            logger.debug("Processing queue is greater than treshold %d . Stopping sectioning for now.", PROCESSING_QUEUE_SECTIONING_TRESHOLD)
-            status.in_sectioning = False
-            db.session.commit()
-            return
-        section = Section.query.get(current_section)
-        if not section:
-            logger.debug("Creating new Section")
-            section = Section()
-            section.id = current_section
-            db.session.add(section)
+            for asset in assets:
+                asset.section = section
 
-        oldest_asset = assets[-1]
+            # check if there are other asset which have by accident the same creation date
+            same_date_assets = Asset.query.filter(and_(Asset.created == oldest_asset.created, Asset.id != oldest_asset.id))
+            for a in same_date_assets:
+                a.section = section
 
-        for asset in assets:
-            asset.section = section
-
-        # check if there are other asset which have by accident the same creation date
-        same_date_assets = Asset.query.filter(and_(Asset.created == oldest_asset.created, Asset.id != oldest_asset.id))
-        for a in same_date_assets:
-            a.section = section
-
-        logger.debug("Initial Sectioning %d", current_section)    
-        current_section += 1
-        assets = Asset.query \
-            .filter(and_(Asset.ignore == False, Asset.created < oldest_asset.created)) \
-            .order_by(Asset.created.desc()).limit(batch_size).all()
-
-    # now we have section with batch_size photos in it. Next we have to make sure
-    # a section ends always with all photos of the last day in it
-    logger.debug("Finetuning sections")
-    sections = Section.query.order_by(Section.id.asc())
-    last_day_of_prev_section = None
-    previous_section = None
-    for section in sections:
-        logger.debug("Finetuning section %d", section.id)
-        process_queue_len = get_queue_len("beat")
-        if process_queue_len > PROCESSING_QUEUE_SECTIONING_TRESHOLD:
-            logger.debug("Processing queue is greater than treshold %d . Stopping sectioning for now.", PROCESSING_QUEUE_SECTIONING_TRESHOLD)
-            status.in_sectioning = False
-            db.session.commit()
-            return
-
-        # get all assets from current section that are taken on the same day as the last one of the previous section
-        if last_day_of_prev_section:
-            next_day = last_day_of_prev_section + timedelta(days=1)
-            same_day_assets = Asset.query.filter(and_(Asset.section == section, Asset.ignore == False, Asset.created >= last_day_of_prev_section, Asset.created < next_day)).all()
-            if len(same_day_assets) > 0:
-                logger.debug("Moving %d assets from section %d to section %d", len(same_day_assets), section.id, previous_section.id)
-                for asset in same_day_assets:
-                    asset.section = previous_section
-        previous_section = section
-        # get the oldest/last asset of the current section
-        last_asset_of_this_section = Asset.query.filter(Asset.section == section).order_by(Asset.created.asc()).first()
-        if last_asset_of_this_section:
-            last_day_of_prev_section = date_to_datetime(last_asset_of_this_section.created)
-
-    # Finally remove all empty sections and tidy up the numbering
-    current_section = 1
-    sections = Section.query.order_by(Section.id.asc()).all()
-    for section in sections:
-        process_queue_len = get_queue_len("beat")
-        if process_queue_len > PROCESSING_QUEUE_SECTIONING_TRESHOLD:
-            logger.debug("Processing queue is greater than treshold %d . Stopping sectioning for now.", PROCESSING_QUEUE_SECTIONING_TRESHOLD)
-            status.in_sectioning = False
-            db.session.commit()
-            return
-        # print(Asset.query.filter(Asset.section == section).order_by(Asset.created.desc()))
-        assets = Asset.query.filter(Asset.section == section).order_by(Asset.created.desc()).all()
-        if len(assets) > 0:
-            logger.debug("Cleaning empty section %d", section.id)
-            if current_section != section.id:
-                new_section = Section()
-                new_section.id = current_section
-                db.session.add(new_section)
-                for asset in assets:
-                    asset.section = new_section
-                db.session.delete(section)            
+            logger.debug("Initial Sectioning %d", current_section)    
             current_section += 1
-            # get oldest and newest date
-            section.newest_date = assets[0].created
-            section.oldest_date = assets[-1].created
-            
-        else:
-            logger.debug("no assets in section %i, removing it", section.id)
-            db.session.delete(section)
+            assets = Asset.query \
+                .filter(and_(Asset.ignore == False, Asset.created < oldest_asset.created)) \
+                .order_by(Asset.created.desc()).limit(batch_size).all()
 
-    status.in_sectioning = False
-    status.sections_dirty = False
-    db.session.commit()
-    logger.debug("Sectioning is done - ok")
+        # now we have section with batch_size photos in it. Next we have to make sure
+        # a section ends always with all photos of the last day in it
+        logger.debug("Finetuning sections")
+        sections = Section.query.order_by(Section.id.asc())
+        last_day_of_prev_section = None
+        previous_section = None
+        for section in sections:
+            logger.debug("Finetuning section %d", section.id)
+            process_queue_len = get_queue_len("beat")
+            if process_queue_len > PROCESSING_QUEUE_SECTIONING_TRESHOLD:
+                logger.debug("Processing queue is greater than treshold %d . Stopping sectioning for now.", PROCESSING_QUEUE_SECTIONING_TRESHOLD)
+                status.in_sectioning = False
+                db.session.commit()
+                return
+
+            # get all assets from current section that are taken on the same day as the last one of the previous section
+            if last_day_of_prev_section:
+                next_day = last_day_of_prev_section + timedelta(days=1)
+                same_day_assets = Asset.query.filter(and_(Asset.section == section, Asset.ignore == False, Asset.created >= last_day_of_prev_section, Asset.created < next_day)).all()
+                if len(same_day_assets) > 0:
+                    logger.debug("Moving %d assets from section %d to section %d", len(same_day_assets), section.id, previous_section.id)
+                    for asset in same_day_assets:
+                        asset.section = previous_section
+            previous_section = section
+            # get the oldest/last asset of the current section
+            last_asset_of_this_section = Asset.query.filter(Asset.section == section).order_by(Asset.created.asc()).first()
+            if last_asset_of_this_section:
+                last_day_of_prev_section = date_to_datetime(last_asset_of_this_section.created)
+
+        # Finally remove all empty sections and tidy up the numbering
+        current_section = 1
+        sections = Section.query.order_by(Section.id.asc()).all()
+        for section in sections:
+            process_queue_len = get_queue_len("beat")
+            if process_queue_len > PROCESSING_QUEUE_SECTIONING_TRESHOLD:
+                logger.debug("Processing queue is greater than treshold %d . Stopping sectioning for now.", PROCESSING_QUEUE_SECTIONING_TRESHOLD)
+                status.in_sectioning = False
+                db.session.commit()
+                return
+            # print(Asset.query.filter(Asset.section == section).order_by(Asset.created.desc()))
+            assets = Asset.query.filter(Asset.section == section).order_by(Asset.created.desc()).all()
+            if len(assets) > 0:
+                logger.debug("Cleaning empty section %d", section.id)
+                if current_section != section.id:
+                    new_section = Section()
+                    new_section.id = current_section
+                    db.session.add(new_section)
+                    for asset in assets:
+                        asset.section = new_section
+                    db.session.delete(section)            
+                current_section += 1
+                # get oldest and newest date
+                section.newest_date = assets[0].created
+                section.oldest_date = assets[-1].created
+                
+            else:
+                logger.debug("no assets in section %i, removing it", section.id)
+                db.session.delete(section)
+
+        status.in_sectioning = False
+        status.sections_dirty = False
+        db.session.commit()
+        logger.debug("Sectioning is done - ok")
 
 
 @celery.task(ignore_result=True)
 def schedule_next_compute_sections(minutes=None):
-    if minutes:
-        compute_sections_schedule = minutes
-    else:
-        compute_sections_schedule = int(
-            current_app.config['COMPUTE_SECTIONS_EVERY_MINUTES'])
+    with sub_span("[celery] schedule_next_compute_sections"):
+        if minutes:
+            compute_sections_schedule = minutes
+        else:
+            compute_sections_schedule = int(
+                current_app.config['COMPUTE_SECTIONS_EVERY_MINUTES'])
 
-    # compute_sections.apply_async(countdown=compute_sections_schedule*60, queue="beat")
-    if compute_sections_schedule:
-        logger.debug("Scheduling next computing section in %i minutes",
-                    compute_sections_schedule)
-        c = chain(compute_sections.si().set(queue="beat"),
-                schedule_next_compute_sections.si().set(queue="beat"))
-        c.apply_async(countdown=compute_sections_schedule*60)
-    else:
-        logger.debug("Scheduling next computing section in disabled by provided 0 value")
+        # compute_sections.apply_async(countdown=compute_sections_schedule*60, queue="beat")
+        if compute_sections_schedule:
+            logger.debug("Scheduling next computing section in %i minutes",
+                        compute_sections_schedule)
+            c = chain(compute_sections.si().set(queue="beat"),
+                    schedule_next_compute_sections.si().set(queue="beat"))
+            c.apply_async(countdown=compute_sections_schedule*60)
+        else:
+            logger.debug("Scheduling next computing section in disabled by provided 0 value")
 
 def create_jpg_preview(asset: Asset, max_dim: int, low_res=True):
     full_path = get_full_path(asset.path)
@@ -612,217 +632,232 @@ def create_jpg_preview(asset: Asset, max_dim: int, low_res=True):
 
 @celery.task
 def create_preview(asset_id: int):
-    logger.debug("Create Preview for %s", asset_id)
-    asset = Asset.query.get(asset_id)
-    if not asset:
-        logger.error("Asset {asset_id} is not found")
-        return
-    path = get_full_path(asset.path)
-    if not os.path.exists(path):
-        logger.error("Asset {asst_id} file not found: %s", path)
-        return
-    try:
-        if asset.is_photo():
-            create_jpg_preview(asset, 2160, False)
-            create_jpg_preview(asset, 400, True)
-        elif asset.is_video():
-            celery.send_task("Create Preview Video", (asset_id, 400), queue="transcode", headers=dedup_header(asset.path, "transcode-video-preview"))
-            video_create_on_demand = bool(strtobool(current_app.config['VIDEO_TRANSCODE_ON_DEMAND']))
-            if not video_create_on_demand:
-                celery.send_task("Create Fullscreen Video", (asset_id,), queue="transcode", headers=dedup_header(asset.path, "transcode-video-full"))
+    with sub_span("[celery] create_preview") as span:
+        span.set_attribute("asset_id", asset_id)
+        logger.debug("Create Preview for %s", asset_id)
+        asset = Asset.query.get(asset_id)
+        if not asset:
+            logger.error("Asset {asset_id} is not found")
+            return
+        path = get_full_path(asset.path)
+        if not os.path.exists(path):
+            logger.error("Asset {asst_id} file not found: %s", path)
+            span.set_attribute("path", path)
+            span.set_status(SpanStatus(status_code=StatusCode.ERROR, description="file_not_found"))
+            return
+        try:
+            if asset.is_photo():
+                create_jpg_preview(asset, 2160, False)
+                create_jpg_preview(asset, 400, True)
+            elif asset.is_video():
+                celery.send_task("Create Preview Video", (asset_id, 400), queue="transcode", headers=dedup_header(asset.path, "transcode-video-preview"))
+                video_create_on_demand = bool(strtobool(current_app.config['VIDEO_TRANSCODE_ON_DEMAND']))
+                if not video_create_on_demand:
+                    celery.send_task("Create Fullscreen Video", (asset_id,), queue="transcode", headers=dedup_header(asset.path, "transcode-video-full"))
 
-            # create_preview_video.apply_async( (asset_id, 400), queue="transcode")
-            # create_fullscreen_video.apply_async( (asset_id,), queue="transcode")
-        else:
-            logger.error(
-                "create_preview: Something went wrong. Should be a photo or a video")
-        logger.debug("Create Preview for %s is done", asset_id)
-    except Exception:
-        logger.error(f"Failed to create previews for asset {asset.path} id={asset_id}")
+                # create_preview_video.apply_async( (asset_id, 400), queue="transcode")
+                # create_fullscreen_video.apply_async( (asset_id,), queue="transcode")
+            else:
+                logger.error(
+                    "create_preview: Something went wrong. Should be a photo or a video")
+            logger.debug("Create Preview for %s is done", asset_id)
+        except Exception as e:
+            logger.error(f"Failed to create previews for asset {asset.path} id={asset_id}")
+            span.set_status(SpanStatus(status_code=StatusCode.ERROR, description=f"Exception {e}"))
 
 
 @celery.task(name="Recreate Previews")
 def recreate_previews(dimension=400, low_res=True):
-    logger.debug("Recreating Previews for size %d", dimension)
-    for asset in Asset.query:
-        create_preview.apply_async((asset.id,), queue='process')
-    logger.debug("Recreating Previews for size %d is done", dimension)
+    with sub_span("[celery] recreate_previews"):
+        logger.debug("Recreating Previews for size %d", dimension)
+        for asset in Asset.query:
+            create_preview.apply_async((asset.id,), queue='process')
+        logger.debug("Recreating Previews for size %d is done", dimension)
 
 
 @celery.task(name="Split path and filename")
 def split_filename_and_path():
-    logger.debug("Splitting up filename and path for all assets again")
-    for asset in Asset.query:
-        asset.directory, asset.filename = os.path.split(asset.path)
-    db.session.commit()
-    logger.debug("Splitting up filename and path for all assets again is done")
+    with sub_span("[celery] split_filename_and_path"):
+        logger.debug("Splitting up filename and path for all assets again")
+        for asset in Asset.query:
+            asset.directory, asset.filename = os.path.split(asset.path)
+        db.session.commit()
+        logger.debug("Splitting up filename and path for all assets again is done")
 
 
 @celery.task()
 def _resync_asset(asset_id):
-    logger.debug(f"Resync asset {asset_id}")
-    asset = Asset.query.get(asset_id)
-    if not asset:
-        logger.error("Asset {asset_id} is not found")
-        return
-    path = get_full_path(asset.path)
-    if not os.path.exists(path):
-        logger.error("Asset {asst_id} file not found: %s", path)
-        return
-    # if not os.path.exists(path):
-    #     # We are out of sync. The database references a asset which does not exist in the filesystem anymore
-    #     logger.debug(
-    #         "asset %s no longer exists. Remove it from the catalog", asset.path)
-    #     delete_asset(asset)
-    db.session.commit()
-    logger.debug(f"Resync asset {asset_id} is done")
+    with sub_span("[celery] _resync_asset") as span:
+        span.set_attribute("asset_id", asset_id)
+        logger.debug(f"Resync asset {asset_id}")
+        asset = Asset.query.get(asset_id)
+        if not asset:
+            logger.error("Asset {asset_id} is not found")
+            return
+        path = get_full_path(asset.path)
+        if not os.path.exists(path):
+            logger.error("Asset {asst_id} file not found: %s", path)
+            return
+        # if not os.path.exists(path):
+        #     # We are out of sync. The database references a asset which does not exist in the filesystem anymore
+        #     logger.debug(
+        #         "asset %s no longer exists. Remove it from the catalog", asset.path)
+        #     delete_asset(asset)
+        db.session.commit()
+        logger.debug(f"Resync asset {asset_id} is done")
 
 
 @celery.task(name="Resync assets")
 def resync_assets():
-    logger.debug(
-        "Sync assets. Ensure the Database is reflecting the filesystem")
-    for asset in Asset.query:
-        _resync_asset.apply_async((asset.id,), queue="process")
-    logger.debug(
-        "Sync assets is done. Ensure the Database is reflecting the filesystem.")
+    with sub_span("[celery] resync_assets"):
+        logger.debug(
+            "Sync assets. Ensure the Database is reflecting the filesystem")
+        for asset in Asset.query:
+            _resync_asset.apply_async((asset.id,), queue="process")
+        logger.debug(
+            "Sync assets is done. Ensure the Database is reflecting the filesystem.")
 
 
 @celery.task(ignore_result=True, soft_time_limit=900)
 def compute_sections_old2():
-    logger.debug("Sectioning assets")
+    with sub_span("[celery] compute_sections_old2") as span:
+        logger.debug("Sectioning assets")
 
-    status = Status.query.first()
+        status = Status.query.first()
 
-    if not status.sections_dirty and Asset.query.filter(Asset.section == None).count() == 0:
-        logger.debug("Sectioning assets - nothing to do")
-        status.next_import_is_new = True
+        if not status.sections_dirty and Asset.query.filter(Asset.section == None).count() == 0:
+            logger.debug("Sectioning assets - nothing to do")
+            status.next_import_is_new = True
+            db.session.commit()
+            span.set_status(SpanStatus(status_code=StatusCode.ERROR, description="Nothing to do"))
+            return
+        sort_old_assets()
+
+        status.in_sectioning = True
         db.session.commit()
-        return
-    sort_old_assets()
 
-    status.in_sectioning = True
-    db.session.commit()
+        try: 
+            batch_size = 200
+            current_section = 1
 
-    try: 
-        batch_size = 200
-        current_section = 1
+            # Get all assets sorted descending, meaning the newest first
+            assets = Asset.query.filter(Asset.ignore == False).order_by(
+                Asset.created.desc()).limit(batch_size).all()
+            while len(assets) > 0:
+                # get the date of the oldest asset of that batch
+                oldest_asset = assets[-1]
+                # Find all assets that are on the same day as the oldest asset
+                oldest_asset_prev_day = date_to_datetime(
+                    oldest_asset.created.date() - timedelta(days=1))
+                # now find all assets that are older as the oldest asset from batch but newer as the next day
+                same_day_assets = Asset.query.filter(and_(
+                    Asset.ignore == False, Asset.created < oldest_asset.created, Asset.created > oldest_asset_prev_day)).all()
 
-        # Get all assets sorted descending, meaning the newest first
-        assets = Asset.query.filter(Asset.ignore == False).order_by(
-            Asset.created.desc()).limit(batch_size).all()
-        while len(assets) > 0:
-            # get the date of the oldest asset of that batch
-            oldest_asset = assets[-1]
-            # Find all assets that are on the same day as the oldest asset
-            oldest_asset_prev_day = date_to_datetime(
-                oldest_asset.created.date() - timedelta(days=1))
-            # now find all assets that are older as the oldest asset from batch but newer as the next day
-            same_day_assets = Asset.query.filter(and_(
-                Asset.ignore == False, Asset.created < oldest_asset.created, Asset.created > oldest_asset_prev_day)).all()
-
-            # these assets will be added to the same section, so that each setion always start with a new day
-            logger.debug("Sectioning %i assets", len(
-                assets) + len(same_day_assets))
-            section = Section.query.get(current_section)
-            if not section:
-                logger.debug("Creating new Section")
-                section = Section()
-                db.session.add(section)
-                # section.id = current_section
-
-            #Asset.query.filter( and_(asset.ignore == False, asset.created > oldest_asset.created, asset.created < oldest_asset_prev_day)).update( {asset.section: section}, synchronize_session=False)
-
-            for asset in assets:
-                asset.section = section
-            for asset in same_day_assets:
-                asset.section = section
-            section.newest_date = assets[0].created
-            if len(same_day_assets) > 0:
-                section.oldest_date = same_day_assets[-1].created
-            else:
-                section.oldest_date = oldest_asset.created
-            assets = Asset.query \
-                .filter(and_(Asset.ignore == False, Asset.created <= oldest_asset_prev_day)) \
-                .order_by(Asset.created.desc()).limit(batch_size).all()
-            current_section += 1
-
-        # Section.query.filter(Section.id >= current_section).delete()
-        status.in_sectioning = False
-        status.sections_dirty = False
-        logger.debug("Sectioning done - ok")
-    except SoftTimeLimitExceeded:
-        logger.error("Compute Sections did not come to an end within 900sec, cleaning up for now")
-        status.in_sectioning = False
-        status.sections_dirty = True
-        logger.debug("Sectioning done - not ok")
-    db.session.commit()
-    logger.debug("Sectioning assets is done")
-
-
-def compute_sections_old():
-    logger.debug("Compute Sections")
-    status = Status.query.first()
-
-    if not status.sections_dirty and Asset.query.filter(Asset.section == None).count() == 0:
-        logger.debug("compute_sections - nothing to do")
-        status.next_import_is_new = True
-        db.session.commit()
-        return
-
-    sort_old_assets()
-
-    offset = 0
-    batch_size = 200
-    current_section = 0
-    assets = Asset.query.filter(Asset.ignore == False).order_by(
-        Asset.created.desc()).limit(batch_size).all()
-    prev_batch_date = None
-    last_batch_date = None
-    section = None
-    initial = True
-
-    while len(assets) > 0:
-        logger.debug("Sectioning next batch %i with %i initial assets",
-                     current_section, len(assets))
-        assets_from_prev_batch = 0
-        add_limit = 0
-        new_batch = True
-        for asset in assets:
-            if initial or (new_batch and last_batch_date and last_batch_date.date() != Asset.created.date()):
-                initial = False
-                if section:
-                    section.num_assets = len(section.assets)
-                    logger.debug(
-                        "Compute Sections - Closing Section with %i assets", section.num_assets)
-                    section.start_date = None
-                add_limit = assets_from_prev_batch
+                # these assets will be added to the same section, so that each setion always start with a new day
+                logger.debug("Sectioning %i assets", len(
+                    assets) + len(same_day_assets))
                 section = Section.query.get(current_section)
                 if not section:
                     logger.debug("Creating new Section")
                     section = Section()
                     db.session.add(section)
-                    section.id = current_section
+                    # section.id = current_section
 
+                #Asset.query.filter( and_(asset.ignore == False, asset.created > oldest_asset.created, asset.created < oldest_asset_prev_day)).update( {asset.section: section}, synchronize_session=False)
+
+                for asset in assets:
+                    asset.section = section
+                for asset in same_day_assets:
+                    asset.section = section
+                section.newest_date = assets[0].created
+                if len(same_day_assets) > 0:
+                    section.oldest_date = same_day_assets[-1].created
+                else:
+                    section.oldest_date = oldest_asset.created
+                assets = Asset.query \
+                    .filter(and_(Asset.ignore == False, Asset.created <= oldest_asset_prev_day)) \
+                    .order_by(Asset.created.desc()).limit(batch_size).all()
                 current_section += 1
-                new_batch = False
-            else:
-                assets_from_prev_batch += 1
-            offset += 1
-            asset.section = section
 
-        last_batch_date = assets[-1].created
-        if prev_batch_date == last_batch_date:
-            # make sure to always have a date break in the set of assets
-            # otherwise we might come into an endless loop
-            # let's see if this solves this strange problem
-            last_batch_date -= timedelta(seconds=1)
-        prev_batch_date = last_batch_date
-        assets = Asset.query \
-            .filter(Asset.created < last_batch_date) \
-            .order_by(Asset.created.desc()).limit(batch_size + add_limit).all()
+            # Section.query.filter(Section.id >= current_section).delete()
+            status.in_sectioning = False
+            status.sections_dirty = False
+            logger.debug("Sectioning done - ok")
+        except SoftTimeLimitExceeded:
+            logger.error("Compute Sections did not come to an end within 900sec, cleaning up for now")
+            status.in_sectioning = False
+            status.sections_dirty = True
+            logger.debug("Sectioning done - not ok")
+            span.set_status(SpanStatus(status_code=StatusCode.ERROR, description="Timeout"))
+            
+        db.session.commit()
+        logger.debug("Sectioning assets is done")
 
-    status.sections_dirty = False
-    db.session.commit()
-    logger.debug("Compute Sections is done")
+
+def compute_sections_old():
+    with sub_span("[celery] compute_sections_old"):
+        logger.debug("Compute Sections")
+        status = Status.query.first()
+
+        if not status.sections_dirty and Asset.query.filter(Asset.section == None).count() == 0:
+            logger.debug("compute_sections - nothing to do")
+            status.next_import_is_new = True
+            db.session.commit()
+            return
+
+        sort_old_assets()
+
+        offset = 0
+        batch_size = 200
+        current_section = 0
+        assets = Asset.query.filter(Asset.ignore == False).order_by(
+            Asset.created.desc()).limit(batch_size).all()
+        prev_batch_date = None
+        last_batch_date = None
+        section = None
+        initial = True
+
+        while len(assets) > 0:
+            logger.debug("Sectioning next batch %i with %i initial assets",
+                        current_section, len(assets))
+            assets_from_prev_batch = 0
+            add_limit = 0
+            new_batch = True
+            for asset in assets:
+                if initial or (new_batch and last_batch_date and last_batch_date.date() != Asset.created.date()):
+                    initial = False
+                    if section:
+                        section.num_assets = len(section.assets)
+                        logger.debug(
+                            "Compute Sections - Closing Section with %i assets", section.num_assets)
+                        section.start_date = None
+                    add_limit = assets_from_prev_batch
+                    section = Section.query.get(current_section)
+                    if not section:
+                        logger.debug("Creating new Section")
+                        section = Section()
+                        db.session.add(section)
+                        section.id = current_section
+
+                    current_section += 1
+                    new_batch = False
+                else:
+                    assets_from_prev_batch += 1
+                offset += 1
+                asset.section = section
+
+            last_batch_date = assets[-1].created
+            if prev_batch_date == last_batch_date:
+                # make sure to always have a date break in the set of assets
+                # otherwise we might come into an endless loop
+                # let's see if this solves this strange problem
+                last_batch_date -= timedelta(seconds=1)
+            prev_batch_date = last_batch_date
+            assets = Asset.query \
+                .filter(Asset.created < last_batch_date) \
+                .order_by(Asset.created.desc()).limit(batch_size + add_limit).all()
+
+        status.sections_dirty = False
+        db.session.commit()
+        logger.debug("Compute Sections is done")
 
