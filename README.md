@@ -196,4 +196,5 @@ See also <a href="https://www.gnu.org/licenses/gpl.txt">GNU General Public Licen
 
 Please note: this project is a one-man-show for now and I'm doing this next to my work. Don't expect something professional.
 
+See some tips on development here : [Development Nodes](DEVELOPMENT_NOTES.md)
 
