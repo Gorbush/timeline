@@ -47,6 +47,12 @@ services:
       - ${ASSET_PATH}:/photos
       - ${PREVIEW_PATH}:/preview
       - ${LOG_PATH}:/log
+    env_file: 
+      - backend/envs/env.docker 
+      - path: .env_docker
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"        
     environment:
       APP: "web"
       WAIT_HOSTS: db:3306, rabbitmq:5672 
@@ -70,6 +76,12 @@ services:
     image: hulk66/timeline_be:${IMAGE_VERSION}
     # build: backend
     restart: always
+    env_file: 
+      - backend/envs/env.docker 
+      - path: .env_docker
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"        
     environment:
       APP: "worker"
       WORKER_QUEUES: ${WORKER_QUEUES}
@@ -104,6 +116,12 @@ services:
     image: hulk66/timeline_be:${IMAGE_VERSION}
     # build: backend
     restart: always
+    env_file: 
+      - backend/envs/env.docker 
+      - path: .env_docker
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"        
     environment:
       APP: "transcoder"
       WAIT_HOSTS: db:3306, rabbitmq:5672, webapp:5000 
@@ -129,13 +147,21 @@ services:
     volumes:
       - ${ASSET_PATH}:/photos:ro
       - ${PREVIEW_PATH}:/preview
+    env_file: 
+      - backend/envs/env.docker 
+      - path: .env_docker
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"        
     environment:
       TIMELINE_BASEPATH: ${TIMELINE_BASEPATH}
       BE_HOST: webapp
       BE_PORT: 5000
+      SERVICE_HOST: ${SERVICE_HOST}
+      SERVICE_PORT: ${SERVICE_PORT}
       WAIT_HOSTS: webapp:5000
       WAIT_HOSTS_TIMEOUT: 180
-      WAIT_SLEEP_INTERVAL: 3     
+      WAIT_SLEEP_INTERVAL: 3
       WAIT_AFTER_HOSTS: 2
     depends_on:
       - webapp
@@ -144,6 +170,12 @@ services:
     image: hulk66/timeline_be:${IMAGE_VERSION}
     # build: backend
     restart: always
+    env_file: 
+      - backend/envs/env.docker 
+      - path: .env_docker
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"        
     environment:
       APP: "watchdog"
       WAIT_HOSTS: db:3306, rabbitmq:5672, webapp:5000 # redis:6379
