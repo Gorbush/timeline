@@ -33,19 +33,22 @@ MAX_CLUSTER_SIZE = 50
 
 
 def assign_new_person(face, person):
-    if not face or not person:
-        # nothing we can do, can only happen due to parallel tasks
-        # working on the same entities
-        return
+    with sub_span("assign_new_person") as span:
+        span.set_attribute("face_id", face.id)
+        span.set_attribute("person_id", person.id)
+        if not face or not person:
+            # nothing we can do, can only happen due to parallel tasks
+            # working on the same entities
+            return
 
-    former_person = face.person
-    if former_person:
-        former_person.faces.remove(face)
-        if len(former_person.faces) == 0:
-            logger.debug(
-                "Deleting Person %i as it has no more faces attached", former_person.id)
-            db.session.delete(former_person)
-    face.person = person
+        former_person = face.person
+        if former_person:
+            former_person.faces.remove(face)
+            if len(former_person.faces) == 0:
+                logger.debug(
+                    "Deleting Person %i as it has no more faces attached", former_person.id)
+                db.session.delete(former_person)
+        face.person = person
 
 
 def distance(s):
