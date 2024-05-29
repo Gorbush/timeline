@@ -801,16 +801,17 @@ def get_unknown_faces_and_closest(page, size):
     with sub_span("get_unknown_faces_and_closest") as span:
         span.set_attribute("page", page)
         span.set_attribute("size", size)
-        q = Face.query.filter(and_(
-            Face.ignore == False,
-            Face.person_id == None))
-        logger.debug(q)
-        paginate = q.paginate(page=page, per_page=size, error_out=False)
+        with sub_span("faces_paging"):
+            q = Face.query.filter(and_(
+                Face.ignore == False,
+                Face.person_id == None))
+            logger.debug(q)
+            paginate = q.paginate(page=page, per_page=size, error_out=False)
         max_faces = int(current_app.config['FACE_CLUSTER_MAX_FACES'])
         known_faces = find_all_classified_known_faces(max_faces) # find_all_classified_faces()
 
         list = []
-        with sub_span("paginate") as span_p:
+        with sub_span("get_closest_faces") as span_p:
             span_p.set_attribute("size", len(paginate.items))
             for face in paginate.items:
                 result = face.to_dict()

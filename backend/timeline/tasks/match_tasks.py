@@ -580,7 +580,7 @@ def find_all_classified_faces():
 
 
 def find_all_classified_known_faces(limit=None):
-    with cached_uncommitted_query("find_all_classified_faces", Face) as (query, set_result, cached_result):
+    with cached_uncommitted_query("find_all_classified_known_faces", Face) as (query, set_result, cached_result):
         if not cached_result:
             try:
                 adjusted_query = query.join(Person) \
