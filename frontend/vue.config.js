@@ -1,3 +1,4 @@
+// This is Proxy configuration - not a web interface
 let apiHost= process.env.BE_HOST || '127.0.0.1'
 let apiPort= process.env.BE_PORT || '5000'
 let apiUrl= 'http://'+apiHost+':'+apiPort+"/timeline"

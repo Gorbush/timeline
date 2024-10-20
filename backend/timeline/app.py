@@ -28,11 +28,15 @@ from logging.handlers import RotatingFileHandler
 from flask import Flask
 import sqlalchemy
 from flask import Blueprint
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+
 
 def create_app(testing=False, cli=False, env=None):
     """Application factory, used to create application"""
     app = Flask(__name__)
-          
+    FlaskInstrumentor().instrument(enable_commenter=True, commenter_options={})
+    FlaskInstrumentor().instrument_app(app)          
+        
     app.config.from_object("timeline.config")
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     # app.config['APPLICATION_ROOT'] = '/timeline'
@@ -140,6 +144,7 @@ def setup_logging(package, app, logfile_name):
     handler = RotatingFileHandler(log_path + '/' + logfile_name, maxBytes=10**7, backupCount=5)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+    # logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.DEBUG)
 
 
 def create_db(app):

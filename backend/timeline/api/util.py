@@ -32,7 +32,7 @@ def list_as_json_only(list, only):
     return flask.jsonify(result)
 
 
-def refine_query(q, person_id = None, thing_id = None, city = None, 
+def refine_query(q, person_id = None, asset_id = None, thing_id = None, city = None, 
       county = None, country = None, state = None, camera = None, rating = None, 
       fromDate = None, toDate = None):
 
@@ -40,6 +40,8 @@ def refine_query(q, person_id = None, thing_id = None, city = None,
         q = q.join(Face, and_(Face.person_id ==
                               person_id, Face.asset_id == Asset.id,
                               Face.confidence_level > Face.CLASSIFICATION_CONFIDENCE_LEVEL_MAYBE))
+    if asset_id:
+        q = q.filter(Asset.id == asset_id)
     if thing_id:
         q = q.join(asset_thing, and_(asset_thing.c.asset_id ==
                                      Asset.id, asset_thing.c.thing_id == thing_id))

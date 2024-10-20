@@ -59,6 +59,7 @@
             targetHeight: Number,
             initialHeight: Number,
             filterPersonId: Number,
+            filterAssetId: Number,
             filterThingId: String,
             city: String,
             county: String,
@@ -184,6 +185,8 @@
                 let config ={ params: params};
                 if (!isNaN(this.filterPersonId))
                     params["person_id"] = this.filterPersonId;
+                if (!isNaN(this.filterAssetId))
+                    params["asset_id"] = this.filterAssetId;
                 params["thing_id"] = this.filterThingId;
                 params["city"] = this.city;
                 params["county"] = this.county;

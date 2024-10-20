@@ -25,6 +25,7 @@ import SearchView from "./components/SearchView";
 import AlbumView from "./components/AlbumView";
 import AlbumListView from "./components/AlbumListView";
 import ImportView from "./components/ImportView";
+import AssetView from "./components/AssetView";
 import { publicPath } from '../vue.config'
 
 Vue.use(Router);
@@ -67,7 +68,6 @@ export default new Router({
       name: 'search',
       component: SearchView,
       props: castRouteParams
-
     },
     {
       path: '/album',
@@ -85,6 +85,12 @@ export default new Router({
       name: 'importList',
       component: ImportView
     },
+    {
+      path: '/asset',
+      name: 'asset',
+      component: AssetView,
+      props: castRouteParams
+    },
 
     {
       path: '*',
@@ -96,6 +102,7 @@ export default new Router({
 function castRouteParams(route) {
   return {
     personId: Number.parseInt(route.query.person_id) || null, 
+    assetId: Number.parseInt(route.query.asset_id) || null, 
     thingId: route.query.thing_id,
     city: route.query.city,
     county: route.query.county,

@@ -21,11 +21,11 @@
             <v-col style="position: relative" fill-height>
                 <transition-group tag="div" class="img-slider" :name="transition">
                     <div :key="photo.id" :id="photo.id" class="img-cont" :asset_id="photo.id"> 
-                        <img :src="photoUrl(photo)" v-if="isPhoto" id="fullImage">
+                        <img :src="photoUrl(photo)" v-if="isPhoto(this.photo)" id="fullImage" alt="asset image" />
                         <div id="fullImageCanvasHolder">
                             <canvas id="faceOutlineCanvas" ></canvas>
                         </div>
-                        <span v-if="!isPhoto" >
+                        <span v-if="!isPhoto(this.photo)" >
                             <v-icon v-if="videoMode == 'pause' && mousemove" style="z-index: 20; position: absolute; top: 50%; left: 50%;"  x-large @click="playVideo(true)">
                                 mdi-play-circle
                             </v-icon>
@@ -98,111 +98,16 @@
                                 <v-spacer></v-spacer>
                                 <v-icon @click="info = false">mdi-close</v-icon>
                             </v-card-title>
-                            <div v-if="photo_faces.length > 0">
-                                <v-card-text>
-                                    <v-container>
-                                        <v-row dense no-gutters>
-                                            <v-col cols="3">
-                                                <div class="font-weight-bold">
-                                                    People    
-                                                </div>
-                                            </v-col>
-                                            <v-col cols="2">
-                                                <v-switch
-                                                    color="info"
-                                                    v-model="photo.faces_all_identified"
-                                                    label="Done">
-                                                        <v-icon color="info" >mdi-check</v-icon>
-                                                </v-switch>
-                                            </v-col>                                            
-                                        </v-row>
-                                    </v-container>
-                                    <v-list density="compact" dense>
-                                        <v-list-item  v-for="face in photo_faces" :key="face.id" density="compact" dense>
-                                            <v-list-item-avatar size="60"
-                                                @mouseover="outlineFace(face)"
-                                                @mouseleave="clearFaceOutline()">
-                                                <v-img :src="faceUrl(face.id)"></v-img>
-                                            </v-list-item-avatar>
-                                            <v-list-item-content dense>
-                                                <span v-if="editId == face.id">
-                                                    <v-combobox  :search-input.sync="faceName"
-                                                        :items="knownPersons"
-                                                        item-text="name"
-                                                        item-value="id"
-                                                        v-model="newPerson">
-                                                    </v-combobox>
-                                                </span> 
-                                                <span v-else>
-                                                    <span v-if="face.person && face.person.confirmed">
-                                                        <v-list-item-title  
-                                                            v-html="face.person.name">
-                                                        </v-list-item-title>
-                                                        <v-list-item-subtitle class="font-italic">{{face.classified_by}} ({{face.confidence}})</v-list-item-subtitle>
-                                                        <v-list-item-subtitle class="font-italic">{{face.emotion}} ({{face.emotion_confidence}})</v-list-item-subtitle>
-                                                    </span>
-                                                    <v-list-item-subtitle v-else>Unknown</v-list-item-subtitle>
-                                                </span>
-                                            </v-list-item-content>
-                                            <v-list-item-action class="no-wrap flex-nowrap flex-sm-nowrap flex-row align-center" dense>
-                                                <v-btn v-if="editId != face.id" icon @click="edit(face)" dense>
-                                                    <v-icon>mdi-pencil</v-icon>
-                                                </v-btn>
-                                                <v-btn v-else icon @click="setPerson">
-                                                    <v-icon>mdi-check</v-icon>
-                                                </v-btn>
-                                                <v-btn icon @click="reset(face)">
-                                                    <v-icon>mdi-delete</v-icon>
-                                                </v-btn>
-                                                <v-btn icon @click="clickFace(face)" v-if="face.person_id">
-                                                    <v-icon>mdi-image-search</v-icon>
-                                                </v-btn>
-                                            </v-list-item-action>
-
-                                        </v-list-item>
-                                    </v-list>
-                                </v-card-text>
-
-                            </div>
 
                             <div>
                                 <v-card-text>
-                                    <div class="font-weight-bold">
-                                        Tags
-                                        <v-combobox  
-                                            chips
-                                            multiple
-                                            deletable-chips
-                                            dense
-                                                :items="tags"
-                                                item-text="name"
-                                                item-value="id"
-                                                v-model="assetTags">
-                                                variant="underlined"
-                                            </v-combobox>
+                                    <div class="font-weight-bold">Details
+                                        <a :href="wallUrl(this.photo)">
+                                            <v-btn icon @click="clickAsset(photo.id)" v-if="photo.id">
+                                                <v-icon>mdi-open-in-app</v-icon>
+                                            </v-btn>
+                                        </a>
                                     </div>
-                                </v-card-text>
-                            </div>
-
-                            <div v-if="things.length > 0">
-                                <v-card-text>
-                                    <div class="font-weight-bold">Things</div>
-                                    <v-list-item>
-                                        <v-list-item-content>
-                                            <v-list-item-subtitle> 
-                                                <span v-for="(thing, index) in things" :key="index">
-                                                    {{thing.label_en}}
-                                                    <span v-if="index != things.length - 1">, </span>
-                                                </span>    
-                                            </v-list-item-subtitle>
-                                        </v-list-item-content>
-                                    </v-list-item>
-                                </v-card-text>
-                            </div>
-
-                            <div>
-                                <v-card-text>
-                                    <div class="font-weight-bold">Details</div>
                                 <v-list-item two-line>
                                     <v-list-item-avatar>
                                         <v-icon>mdi-calendar</v-icon>
@@ -221,7 +126,7 @@
                                     </v-list-item-content>
                                 </v-list-item>
                                 <!-- repair this; information is also available for Videos but not as exif -->
-                                <v-list-item two-line v-if="isPhoto">
+                                <v-list-item two-line v-if="isPhoto(this.photo)">
                                     <v-list-item-avatar>
                                         <v-icon>mdi-camera</v-icon>
                                     </v-list-item-avatar>
@@ -233,7 +138,7 @@
                                         </v-list-item-subtitle>
                                     </v-list-item-content>            
                                 </v-list-item>
-                                <v-list-item three-line v-if=isPhoto>
+                                <v-list-item three-line v-if="isPhoto(this.photo)">
                                     <v-list-item-avatar>
                                         <v-icon>mdi-camera-iris</v-icon>
                                     </v-list-item-avatar>
@@ -281,6 +186,41 @@
                                 </v-card-text>
                             </div>     
 
+                            <div>
+                                <v-card-text>
+                                    <div class="font-weight-bold">
+                                        Tags
+                                        <v-combobox  
+                                            chips
+                                            multiple
+                                            deletable-chips
+                                            dense
+                                                :items="tags"
+                                                item-text="name"
+                                                item-value="id"
+                                                v-model="assetTags">
+                                                variant="underlined"
+                                            </v-combobox>
+                                    </div>
+                                </v-card-text>
+                            </div>
+
+                            <div v-if="things.length > 0">
+                                <v-card-text>
+                                    <div class="font-weight-bold">Things</div>
+                                    <v-list-item>
+                                        <v-list-item-content>
+                                            <v-list-item-subtitle> 
+                                                <span v-for="(thing, index) in things" :key="index">
+                                                    {{thing.label_en}}
+                                                    <span v-if="index != things.length - 1">, </span>
+                                                </span>    
+                                            </v-list-item-subtitle>
+                                        </v-list-item-content>
+                                    </v-list-item>
+                                </v-card-text>
+                            </div>
+
                             <div v-if="photo.score_aesthetic || photo.score_technical">
                                 <v-card-text >
                                     <div class="font-weight-bold">Scores</div>
@@ -294,11 +234,76 @@
                                         <v-list-item-subtitle>
                                             Technical {{photo.score_technical}}
                                         </v-list-item-subtitle>
-
                                     </v-list-item-content>
                                 </v-list-item>
+                            </div>
 
-                            </div>                   
+                            <div v-if="photo_faces.length > 0">
+                                <v-card-text>
+                                    <v-container>
+                                        <v-row dense no-gutters>
+                                            <v-col cols="3">
+                                                <div class="font-weight-bold">
+                                                    People    
+                                                </div>
+                                            </v-col>
+                                            <v-col cols="2">
+                                                <v-switch
+                                                    color="info"
+                                                    v-model="photo.faces_all_identified"
+                                                    label="Done">
+                                                        <v-icon color="info" >mdi-check</v-icon>
+                                                </v-switch>
+                                            </v-col>                                            
+                                        </v-row>
+                                    </v-container>
+                                    <v-list density="compact" dense>
+                                        <v-list-item  v-for="face in photo_faces" :key="face.id" density="compact" dense>
+                                            <v-list-item-avatar size="60"
+                                                @mouseover="outlineFace(face)"
+                                                @mouseleave="clearFaceOutline()">
+                                                <v-img :src="faceUrl(face.id)"></v-img>
+                                            </v-list-item-avatar>
+                                            <v-list-item-content dense>
+                                                <span v-if="faceEditId == face.id">
+                                                    <v-combobox  :search-input.sync="faceName"
+                                                        :items="knownPersons"
+                                                        item-text="name"
+                                                        item-value="id"
+                                                        v-model="newPerson">
+                                                    </v-combobox>
+                                                </span> 
+                                                <span v-else>
+                                                    <span v-if="face.person && face.person.confirmed">
+                                                        <v-list-item-title  
+                                                            v-html="face.person.name">
+                                                        </v-list-item-title>
+                                                        <v-list-item-subtitle class="font-italic">{{face.classified_by}} ({{face.confidence}})</v-list-item-subtitle>
+                                                        <v-list-item-subtitle class="font-italic">{{face.emotion}} ({{face.emotion_confidence}})</v-list-item-subtitle>
+                                                    </span>
+                                                    <v-list-item-subtitle v-else>Unknown</v-list-item-subtitle>
+                                                </span>
+                                            </v-list-item-content>
+                                            <v-list-item-action class="no-wrap flex-nowrap flex-sm-nowrap flex-row align-center" dense>
+                                                <v-btn v-if="faceEditId != face.id" icon @click="edit(face)" dense>
+                                                    <v-icon>mdi-pencil</v-icon>
+                                                </v-btn>
+                                                <v-btn v-else icon @click="setPerson">
+                                                    <v-icon>mdi-check</v-icon>
+                                                </v-btn>
+                                                <v-btn icon @click="reset(face)">
+                                                    <v-icon>mdi-delete</v-icon>
+                                                </v-btn>
+                                                <v-btn icon @click="clickFace(face)" v-if="face.person_id">
+                                                    <v-icon>mdi-image-search</v-icon>
+                                                </v-btn>
+                                            </v-list-item-action>
+
+                                        </v-list-item>
+                                    </v-list>
+                                </v-card-text>
+
+                            </div>
                         </v-card>
                     </div>
                 </v-card>
@@ -308,9 +313,11 @@
 </template>
 
 <script>
-    import moment from "moment"
     import 'vuelayers/lib/style.css' // needs css-loader
     import { mapState } from 'vuex'
+    import { date_utils } from "../utils/date_utils"
+    import { asset_utils } from "../utils/asset_utils"
+    // import { url_utils } from '../utils/url_utils'
 
     export default {
         name: "ImageViewer",
@@ -340,7 +347,7 @@
                 rotation: 0,
                 faceName: "",
                 newPerson: null,
-                editId: 0,
+                faceEditId: 0,
                 prevImage: null,
                 nextImage: null,
                 mousemove: false,
@@ -361,6 +368,9 @@
             .then((tags => {
                 this.tags = tags;
             }));
+            // if (this.photo) {
+            //     url_utils.addParamsToLocation(this.$router, this.$route, { 'asset_id': this.photo.id});
+            // }
         },
 
         computed: {
@@ -378,12 +388,7 @@
             },
 
             videoSource() {
-                return this.isPhoto ? null : encodeURI(this.$basePath +"/assets/video/full/" + this.photo.path + ".mp4");
-
-            },
-
-            isPhoto() {
-                return this.photo.asset_type == 'jpg' || this.photo.asset_type == 'heic';
+                return asset_utils.isPhoto(this.photo) ? null : encodeURI(this.$basePath +"/assets/video/full/" + this.photo.path + ".mp4");
             },
 
             assetTags: {
@@ -399,6 +404,7 @@
                     }
                 }
             },
+
         },
 
         watch: {
@@ -430,6 +436,8 @@
         },
 
         methods: {
+            ...date_utils,
+            ...asset_utils,
             setAssetTags(tagsList) {
                 console.log("SetTags ", tagsList);
                 let tagNames = tagsList.map( (tag) => tag.name ? tag.name : tag );
@@ -479,7 +487,7 @@
             },
 
             edit(face) {
-                this.editId = face.id;
+                this.faceEditId = face.id;
                 if (face.person) {
                     // this.oldPersonId = face.person.id;
                     this.newPerson = face.person;
@@ -497,11 +505,15 @@
                 this.$router.push({name:'wall', query:{ person_id: face.person_id}});
             },
 
+            clickAsset(asset_id) {
+                this.$router.push({name:'wall', query:{ asset_id: asset_id}});
+            },
+
             setPerson() {
                 this.$store.dispatch("assignFaceToPerson", {
                     person:this.newPerson, 
                     name:this.faceName, 
-                    faceId:this.editId }
+                    faceId:this.faceEditId }
                 ).then(() => {
                     this.getKnownPersons();
                     this.getFacesByPhoto(this.photo);                     
@@ -547,28 +559,8 @@
 
             getKnownPersons() {
                 this.$store.dispatch("getAllPersons");
-                this.editId = 0;
+                this.faceEditId = 0;
                 this.faceName = "";
-            },
-
-            date(d) {
-                return moment(d).format("DD.MM.YYYY");
-            },
-
-            time(d) {
-                return moment(d).format("dddd, H:mm");
-            },
-
-            photoUrl(photo) {
-                if (photo)
-                    if (photo.asset_type == "mp4" || photo.asset_type == "mov")
-                        return encodeURI(this.$basePath +"/assets/video/full/" + photo.path + ".mp4");
-                    else
-                        return encodeURI(this.$basePath +"/assets/full/" + photo.path);
-            },
-
-            faceUrl(id) {
-                return this.$basePath + "/api/face/preview/80/" + id + ".png";
             },
 
             left() {
@@ -582,7 +574,8 @@
             close() {
                 if (this.photo.asset_type == 'mov' || this.photo.asset_type =='mp4')
                     this.$refs.video.pause();
-                this.$emit('close')
+                this.$emit('close');
+                // url_utils.removeParamsFromLocation(this.$router, this.$route, [ 'asset_id' ]);
             },
             
             clearFaceOutline() {

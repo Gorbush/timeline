@@ -29,8 +29,15 @@ Vue.use(VueJustifiedLayout);
 Vue.config.productionTip = false;
 
 console.log("Configuring axios")
-Vue.prototype.$basePath = (window.TIMELINE_BASEPATH ? window.TIMELINE_BASEPATH : process.env.VUE_APP_TIMELINE_BASEPATH) || "";
-axios.defaults.baseURL = Vue.prototype.$basePath;
+
+let basePath = window.TIMELINE_BASEPATH || process.env.VUE_APP_TIMELINE_BASEPATH || "";
+let service_host = window.SERVICE_HOST || process.env.VUE_APP_SERVICE_HOST || window.location.hostname;
+let service_port = window.SERVICE_PORT || process.env.VUE_APP_SERVICE_PORT || window.location.port;
+
+let serviceUrl = `${window.location.protocol}//${service_host}:${service_port}${basePath}`
+
+Vue.prototype.$basePath = serviceUrl;
+axios.defaults.baseURL = serviceUrl;
 console.log("Configuring axios URL="+axios.defaults.baseURL)
 
 new Vue({

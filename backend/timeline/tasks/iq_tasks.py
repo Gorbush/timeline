@@ -24,6 +24,7 @@ from idealo.utils.utils import calc_mean_score
 from tensorflow.keras.applications.mobilenet import preprocess_input
 from timeline.domain import Asset
 from timeline.extensions import celery, db
+from timeline.util.otel import sub_span
 from timeline.util.path_util import get_full_path
 
 logger = logging.getLogger(__name__)
@@ -70,8 +71,11 @@ class ImageQualifier:
 
 @celery.task(name="Quality Assessment", ignore_result=True)
 def predict_quality(asset_id):
-    qualifier.predict(asset_id)
+    with sub_span("[celery] predict_quality") as span:
+        span.set_attribute("asset_id", asset_id)
+        qualifier.predict(asset_id)
 
 def init_iq():
-    global qualifier
-    qualifier = ImageQualifier()
+    with sub_span('init_iq'):
+        global qualifier
+        qualifier = ImageQualifier()

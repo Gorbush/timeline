@@ -40,6 +40,7 @@ from timeline.tasks.match_tasks import (assign_new_person,
                                         match_all_unknown_faces)
 from timeline.util.image_ops import read_and_transpose, resize_width
 from timeline.util.path_util import get_full_path, get_preview_path
+from timeline.util.otel import sub_span
 from timeline.extensions import celery
 
 
@@ -239,47 +240,61 @@ def get_things_for_asset(id):
     asset = Asset.query.get(id)
     return jsonify_items(asset.things)
 
+@blueprint.route('/asset/duplicates/<string:hash>', methods=['GET'])
+def get_duplicates_for_hash(hash):
+    assets = Asset.query.filter(
+            Asset.checksum == hash).order_by(Asset.path.asc(), Asset.created.desc())
+    return jsonify_items(assets)
+
 
 @blueprint.route('/asset/all/<int:page>/<int:size>', methods=['GET'])
 def all_assets(page=0, size=30):
-    q = Asset.query.order_by(Asset.created.desc())
-    return jsonify_pagination(q, page, size)
+    with sub_span("all_assets") as span:
+        span.set_attribute("page", page)
+        span.set_attribute("size", size)
+        q = Asset.query.order_by(Asset.created.desc())
+        return jsonify_pagination(q, page, size)
 
 
 @blueprint.route('/asset/data/<int:id>', methods=['GET'])
 def asset_data(id):
-    logger.debug("asset data")
+    logger.debug(f"asset data {id}")
     asset = Asset.query.get(id)
     return flask.jsonify(asset.to_dict())
 
 
 @blueprint.route('/face/all', methods=['GET'])
 def all_faces():
-    logger.debug("all faces")
-    face_ids = Face.query.with_entities(Face.id).all()
-    return flask.jsonify(face_ids)
+    with sub_span("all_faces"):
+        face_ids = Face.query.with_entities(Face.id).all()
+        return flask.jsonify(face_ids)
 
 
 @blueprint.route('/asset/exif/<int:id>', methods=['GET'])
-def exif_for_asset(id):
-    logger.debug("Get exif %i", id)
-    exif = {}
-    for e in Asset.query.get(id).exif:
-        if e.key in exif_filter:
-            exif[e.key] = e.value
-    return flask.jsonify(exif)
+def exif_for_asset(asset_id):
+    with sub_span("exif_for_asset") as span:
+        span.set_attribute("asset_id", asset_id)
+        logger.debug("Get exif %i", asset_id)
+        exif = {}
+        for e in Asset.query.get(asset_id).exif:
+            if e.key in exif_filter:
+                exif[e.key] = e.value
+        return flask.jsonify(exif)
 
 
 @blueprint.route('/asset/by_face/<int:id>', methods=['GET'])
-def asset_by_face(id):
-    logger.debug("asset for Face %i", id)
-    asset = Face.query.get(id).asset
-    return flask.jsonify(asset.to_dict())
+def asset_by_face(face_id):
+    with sub_span("asset_by_face") as span:
+        span.set_attribute("face_id", face_id)
+        logger.debug("asset for Face %i", face_id)
+        asset = Face.query.get(face_id).asset
+        return flask.jsonify(asset.to_dict())
 
 
 def amend_query(request, q):
     fromDate = toDate = rating = None
     person_id = request.args.get("person_id")
+    asset_id = request.args.get("asset_id")
     thing_id = request.args.get("thing_id")
     country = request.args.get("country")
     county = request.args.get("county")
@@ -298,7 +313,7 @@ def amend_query(request, q):
     if toDate_s:
         toDate = datetime.strptime(toDate_s, "%Y-%m-%d")
 
-    q = refine_query(q, person_id = person_id, thing_id = thing_id, country = country, county = county, 
+    q = refine_query(q, person_id = person_id, asset_id = asset_id, thing_id = thing_id, country = country, county = county, 
                      city = city, state = state, camera = camera, rating = rating, fromDate = fromDate, toDate = toDate)
 
     if album_id:
@@ -374,18 +389,20 @@ def currently_importing():
 
 @blueprint.route('/asset/by_section/<int:id>', methods=['GET'])
 def asset_by_section(id):
-    logger.debug("Get section %i", id)
+    with sub_span("asset_by_section") as span:
+        span.set_attribute("section_id", id)
+        logger.debug("Get section %i", id)
 
-    q = Asset.query.filter(Asset.ignore == False)
+        q = Asset.query.filter(Asset.ignore == False)
 
-    q = amend_query(request, q)
-    assets = q.filter(Asset.section_id == id).order_by(Asset.created.desc())
-    result = list_as_json(
-            assets, 
-            excludes=("-exif", "-gps", "-faces", 
-            "-things", "-section", "-albums"))
-    logger.debug("Get section %i is done", id)
-    return result
+        q = amend_query(request, q)
+        assets = q.filter(Asset.section_id == id).order_by(Asset.created.desc())
+        result = list_as_json(
+                assets, 
+                excludes=("-exif", "-gps", "-faces", 
+                "-things", "-section", "-albums"))
+        logger.debug("Get section %i is done", id)
+        return result
 
 
 def face_assigned_by_human(face):
@@ -395,88 +412,98 @@ def face_assigned_by_human(face):
 
 @blueprint.route('/face/assign_face_to_person', methods=['POST'])
 def assign_face_to_person():
-    req_data = request.get_json()
-    person_id = req_data.get("personId")
-    name = req_data.get("name")
-    face_id = req_data.get("faceId")
-    person = Person.query.get(person_id)
-    if not person:
-        person = Person()
-        person.name = name
-        person.confirmed = True
-        person.ignore = False
+    with sub_span("assign_face_to_person") as span:
+        req_data = request.get_json()
+        person_id = req_data.get("personId")
+        name = req_data.get("name")
+        face_id = req_data.get("faceId")
+        person = Person.query.get(person_id)
+        span.set_attribute("person_id", person_id)
+        span.set_attribute("name", name)
+        span.set_attribute("face_id", face_id)
+        if not person:
+            person = Person()
+            person.name = name
+            person.confirmed = True
+            person.ignore = False
 
-    logger.debug("Assign face %d to %d", face_id, person.id)
-    face = Face.query.get(face_id)
-    assign_new_person(face, person)
-    face_assigned_by_human(face)
+        logger.debug("Assign face %d to %d", face_id, person.id)
+        face = Face.query.get(face_id)
+        assign_new_person(face, person)
+        face_assigned_by_human(face)
 
-    db.session.commit()
-    return flask.jsonify(True)
+        db.session.commit()
+        return flask.jsonify(True)
 
 
-def set_name_faces(personId, newPersonId, name, face_ids):
-    logger.debug("Set Face Name for %s", name)
-    person = Person.query.get(personId)
+def set_name_faces(person_id, new_person_id, name, face_ids):
+    with sub_span("set_name_faces") as span:
+        span.set_attribute("person_id", person_id)
+        span.set_attribute("name", name)
+        span.set_attribute("new_person_id", new_person_id)
+        logger.debug("Set Face Name for %s", name)
+        person = Person.query.get(person_id)
 
-    if (newPersonId is None):
-        # This is a new person, so we need to set the name and remove all
-        # faces which have not been confirmed by the user
-        person.name = name
-        person.confirmed = True
-        to_be_removed = []
-        for face in person.faces:
-            if face.id not in face_ids:
-                # face.person = None
-                # person.faces.remove(face)
-                to_be_removed.append(face.id)
-            else:
+        if (new_person_id is None):
+            # This is a new person, so we need to set the name and remove all
+            # faces which have not been confirmed by the user
+            person.name = name
+            person.confirmed = True
+            to_be_removed = []
+            for face in person.faces:
+                if face.id not in face_ids:
+                    # face.person = None
+                    # person.faces.remove(face)
+                    to_be_removed.append(face.id)
+                else:
+                    face_assigned_by_human(face)
+
+            for to_be_removed_id in to_be_removed:
+                face = Face.query.get(to_be_removed_id)
+                person.faces.remove(face)
+            # db.session.commit()
+
+        else:
+            # This is an existing person, so we need to do two things
+            # move all selected faces to the identified person
+            # discard the other person
+            newPerson = Person.query.get(new_person_id)
+            for fid in face_ids:
+                face = Face.query.get(fid)
                 face_assigned_by_human(face)
+                face.person = newPerson
 
-        for to_be_removed_id in to_be_removed:
-            face = Face.query.get(to_be_removed_id)
-            person.faces.remove(face)
-        # db.session.commit()
+            # Now remove those faces that have not been confirmed bye the user and remove the person
+            # therefore iterate over the person, remove the face relationship and delete the person
+            for face in person.faces:
+                face.person = None
+                face.confidence_level = None
+                face.distance_to_human_classified = None
+                face.confidence = None
 
-    else:
-        # This is an existing person, so we need to do two things
-        # move all selected faces to the identified person
-        # discard the other person
-        newPerson = Person.query.get(newPersonId)
-        for fid in face_ids:
-            face = Face.query.get(fid)
-            face_assigned_by_human(face)
-            face.person = newPerson
-
-        # Now remove those faces that have not been confirmed bye the user and remove the person
-        # therefore iterate over the person, remove the face relationship and delete the person
-        for face in person.faces:
-            face.person = None
-            face.confidence_level = None
-            face.distance_to_human_classified = None
-            face.confidence = None
-
-        db.session.delete(person)
-    db.session.commit()
+            db.session.delete(person)
+        db.session.commit()
 
 
 @blueprint.route('/face/setname', methods=['POST'])
 def set_facename():
+    with sub_span("set_name_faces") as span:
+        req_data = request.get_json()
+        logger.debug(req_data)
+        # name = req_data["name"]
+        ids = req_data["ids"]
+        span.set_attribute("person_ids", ids.join(","))
+        person_id = req_data['oldPersonId']
+        new_person = req_data['newPerson']
+        span.set_attribute("person_id", person_id)
+        if isinstance(new_person, dict):
+            # Merge existing person and new Faces
+            set_name_faces(person_id, new_person['id'], new_person['name'], ids)
+        else:
+            # Completely new Person
+            set_name_faces(person_id, None, new_person, ids)
 
-    req_data = request.get_json()
-    logger.debug(req_data)
-    # name = req_data["name"]
-    ids = req_data["ids"]
-    personId = req_data['oldPersonId']
-    newPerson = req_data['newPerson']
-    if isinstance(newPerson, dict):
-        # Merge existing person and new Faces
-        set_name_faces(personId, newPerson['id'], newPerson['name'], ids)
-    else:
-        # Completely new Person
-        set_name_faces(personId, None, newPerson, ids)
-
-    return flask.jsonify(True)
+        return flask.jsonify(True)
 
 
 def _ignore_face(face):
@@ -495,23 +522,29 @@ def _reset_face(face):
 
 @blueprint.route('/person/ignore_unknown_person/<int:person_id>', methods=['GET'])
 def ignore_unknonw_person(person_id):
-    person = Person.query.get(person_id)
-    for face in person.faces:
-        _ignore_face(face)
-    db.session.delete(person)
-    db.session.commit()
-    return all_persons()
+    with sub_span("ignore_unknonw_person") as span:
+        span.set_attribute("person_id", person_id)
+        person = Person.query.get(person_id)
+        with sub_span("ignore_faces") as span:
+            for face in person.faces:
+                _ignore_face(face)
+        with sub_span("delete_person") as span:
+            db.session.delete(person)
+        db.session.commit()
+        return all_persons()
 
 
 @blueprint.route('/person/forget/<int:person_id>', methods=['GET'])
 def forget_person(person_id):
-    logger.debug("Forgetting person %d", person_id)
-    person = Person.query.get(person_id)
-    # just ignore the person for the time being
-    person.ignore = True
-    #  and do the rest of the cleaning in the background as it can consume some time
-    celery.send_task("timeline.tasks.match_tasks.reset_person", (person_id,), queue="beat", headers=dedup_header(person_id, "reset-person"))
-    db.session.commit()
+    with sub_span("forget_person") as span:
+        span.set_attribute("person_id", person_id)
+        logger.debug("Forgetting person %d", person_id)
+        person = Person.query.get(person_id)
+        # just ignore the person for the time being
+        person.ignore = True
+        #  and do the rest of the cleaning in the background as it can consume some time
+        celery.send_task("timeline.tasks.match_tasks.reset_person", (person_id,), queue="beat", headers=dedup_header(person_id, "reset-person"))
+        db.session.commit()
 
     #for face in person.faces:
     #    face.ignore = False
@@ -526,16 +559,19 @@ def forget_person(person_id):
 
 @blueprint.route('/person/merge/<int:src_person_id>/<int:target_person_id>', methods=['GET'])
 def merge_persons(src_person_id, target_person_id):
-    logger.debug("Merge faces from person %i to %i",
-                 src_person_id, target_person_id)
-    src_person = Person.query.get(src_person_id)
-    target_person = Person.query.get(target_person_id)
-    for face in src_person.faces:
-        face.person = target_person
-        face_assigned_by_human(face)
-    db.session.delete(src_person)
-    db.session.commit()
-    return flask.jsonify(True)
+    with sub_span("forget_person") as span:
+        span.set_attribute("src_person_id", src_person_id)
+        span.set_attribute("person_id", target_person_id)
+        logger.debug("Merge faces from person %i to %i",
+                    src_person_id, target_person_id)
+        src_person = Person.query.get(src_person_id)
+        target_person = Person.query.get(target_person_id)
+        for face in src_person.faces:
+            face.person = target_person
+            face_assigned_by_human(face)
+        db.session.delete(src_person)
+        db.session.commit()
+        return flask.jsonify(True)
 
 
 @blueprint.route('/person/rename', methods=['POST'])
@@ -560,36 +596,42 @@ def rename_persons():
 
 @blueprint.route('/person/all', methods=['GET'])
 def all_persons():
-    persons = Person.query.filter(Person.ignore != True).order_by(Person.name).all()
-    return flask.jsonify([p.to_dict() for p in persons])
+    with sub_span("all_persons"):
+        persons = Person.query.filter(Person.ignore != True).order_by(Person.name).all()
+        return flask.jsonify([p.to_dict() for p in persons])
 
 
 @blueprint.route('/person/known', methods=['GET'])
 def known_persons():
-    persons = Person.query.filter(
-        and_(Person.confirmed == True, Person.ignore != True)).order_by(Person.name).all()
-    return flask.jsonify([p.to_dict() for p in persons])
+    with sub_span("known_persons"):
+        persons = Person.query.filter(
+            and_(Person.confirmed == True, Person.ignore != True)).order_by(Person.name).all()
+        return flask.jsonify([p.to_dict() for p in persons])
 
 
 @blueprint.route('/person/<int:page>/<int:size>', methods=['GET'])
 def persons(page, size):
-    filters = [ Person.ignore != True ]
-    person_id = request.args.get("filter.person_id")
-    if person_id:
-        filters.append( Person.id == person_id )
-    person_name = request.args.get("filter.person_name")
-    if person_name:
-        filters.append( Person.name.contains(person_name) )
-    paginate = Person.query.filter(and_(*filters)).order_by(Person.name)
-    return jsonify_pagination(paginate, page, size)
+    with sub_span("persons") as span:
+        span.set_attribute("page", page)
+        span.set_attribute("size", size)
+        filters = [ Person.ignore != True ]
+        person_id = request.args.get("filter.person_id")
+        if person_id:
+            filters.append( Person.id == person_id )
+        person_name = request.args.get("filter.person_name")
+        if person_name:
+            filters.append( Person.name.contains(person_name) )
+        paginate = Person.query.filter(and_(*filters)).order_by(Person.name)
+        return jsonify_pagination(paginate, page, size)
 
 
 @blueprint.route('/things/all', methods=['GET'])
 def all_things():
-    # things = Thing.query.order_by(Thing.label_en).all()
-    things = Thing.query.filter(
-        Thing.assets != None).order_by(Thing.label_en).all()
-    return jsonify_items(things)
+    with sub_span("all_things") as span:
+        # things = Thing.query.order_by(Thing.label_en).all()
+        things = Thing.query.filter(
+            Thing.assets != None).order_by(Thing.label_en).all()
+        return jsonify_items(things)
 
 
 @blueprint.route('/things/preview_asset', methods=['GET'])
@@ -626,198 +668,231 @@ def thing_preview_asset():
 
 @blueprint.route('/face/data/by_person/<int:person_id>', methods=['GET'])
 def faces_by_person(person_id):
-    # get data only for faces we are really sure they belong to a person
-    face = Face.query.join(Person).filter(
-        or_(
-            and_(Person.confirmed == True,  Face.person_id == person_id, Person.id == person_id, Face.confidence_level >= Face.CLASSIFICATION_CONFIDENCE_LEVEL_SAFE),
-            and_(Person.confirmed == False, Face.person_id == person_id, Person.id == person_id)
-        )
-    ).first()
-    # index = 0
-    #index = request.args.get("index")
-    # if not index:
-    #    index = random.randrange(len(faces))
-    return flask.jsonify(face.to_dict())
+    with sub_span("faces_by_person") as span:
+        span.set_attribute("person_id", person_id)
+        # get data only for faces we are really sure they belong to a person
+        face = Face.query.join(Person).filter(
+            or_(
+                and_(Person.confirmed == True,  Face.person_id == person_id, Person.id == person_id, Face.confidence_level >= Face.CLASSIFICATION_CONFIDENCE_LEVEL_SAFE),
+                and_(Person.confirmed == False, Face.person_id == person_id, Person.id == person_id)
+            )
+        ).first()
+        # index = 0
+        #index = request.args.get("index")
+        # if not index:
+        #    index = random.randrange(len(faces))
+        return flask.jsonify(face.to_dict())
 
 
 @blueprint.route('/asset/by_person/<int:person_id>/<int:page>/<int:size>', methods=['GET'])
 def assets_by_person(person_id, page, size):
-    paginate = Asset.query.join(Face, and_(Face.asset_id == Asset.id, Face.person_id == person_id)).order_by(
-        Asset.created.desc())
-    return jsonify_pagination(paginate, page, size)
+    with sub_span("assets_by_person") as span:
+        span.set_attribute("person_id", person_id)
+        span.set_attribute("page", page)
+        span.set_attribute("size", size)
+        paginate = Asset.query.join(Face, and_(Face.asset_id == Asset.id, Face.person_id == person_id)).order_by(
+            Asset.created.desc())
+        return jsonify_pagination(paginate, page, size)
 
 
 @blueprint.route('/person/by_asset/<int:asset_id>', methods=['GET'])
 def get_persons_by_asset(asset_id):
-    persons = Person.query.join(Face, and_(
+    with sub_span("get_persons_by_asset") as span:
+        span.set_attribute("asset_id", asset_id)
+        persons = Person.query.join(Face, and_(
         Person.ignore != True, Face.asset_id == asset_id, Person.id == Face.person_id))
-    return jsonify_items(persons)
+        return jsonify_items(persons)
 
 
 @blueprint.route('/face/recent/<int:page>/<int:size>', methods=['GET'])
 def faces_recent(page, size):
-    logger.debug("get recent faces up to %i", size)
-    filters = [ Face.updated.is_not(None), Face.person_id == Person.id ]
-    person_id = request.args.get("filter.person_id")
-    if person_id:
-        filters.append( Face.person_id == person_id )
-    person_name = request.args.get("filter.person_name")
-    if person_name:
-        filters.append( Person.name.contains(person_name) )
+    with sub_span("get_persons_by_asset") as span:
+        span.set_attribute("page", page)
+        span.set_attribute("size", size)
+        logger.debug("get recent faces up to %i", size)
+        filters = [ Face.updated.is_not(None), Face.person_id == Person.id ]
+        person_id = request.args.get("filter.person_id")
+        if person_id:
+            filters.append( Face.person_id == person_id )
+        person_name = request.args.get("filter.person_name")
+        if person_name:
+            filters.append( Person.name.contains(person_name) )
+            
+        if request.args.get("filter.switchNone") == 'false':
+            filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_NONE )
+        if request.args.get("filter.switchMayBe") == 'false':
+            filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_MAYBE )
+        if request.args.get("filter.switchSafe") == 'false':
+            filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_SAFE )
+        if request.args.get("filter.switchVerySafe") == 'false':
+            filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_VERY_SAFE )
+        if request.args.get("filter.switchConfirmed") == 'false':
+            filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_CONFIRMED )
         
-    if request.args.get("filter.switchNone") == 'false':
-        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_NONE )
-    if request.args.get("filter.switchMayBe") == 'false':
-        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_MAYBE )
-    if request.args.get("filter.switchSafe") == 'false':
-        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_SAFE )
-    if request.args.get("filter.switchVerySafe") == 'false':
-        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_VERY_SAFE )
-    if request.args.get("filter.switchConfirmed") == 'false':
-        filters.append( Face.confidence_level != Face.CLASSIFICATION_CONFIDENCE_LEVEL_CONFIRMED )
-      
-    q = Face.query.join(Person).filter(and_(*filters)).order_by(Face.updated.desc())
-    from timeline.util.db import show_query
-    show_query(q)
-    paginate = q.paginate(page=page, per_page=size, error_out=False)
-    
-    max_faces = int(current_app.config['FACE_CLUSTER_MAX_FACES'])    
-    known_faces = find_all_classified_known_faces(max_faces) # find_all_classified_faces()
-    
-    list = []
-    for face in paginate.items:
-        result = face.to_dict()
-        asset = Asset.query.get(face.asset_id) 
-        excludes=("-exif", "-gps", "-faces", "-things", "-section")
-        result["photo"] = asset.to_dict(rules=excludes)
+        q = Face.query.join(Person).filter(and_(*filters)).order_by(Face.updated.desc())
+        from timeline.util.db import show_query
+        show_query(q)
+        paginate = q.paginate(page=page, per_page=size, error_out=False)
+        
+        max_faces = int(current_app.config['FACE_CLUSTER_MAX_FACES'])    
+        known_faces = find_all_classified_known_faces(max_faces) # find_all_classified_faces()
+        
+        list = []
+        for face in paginate.items:
+            result = face.to_dict()
+            asset = Asset.query.get(face.asset_id) 
+            excludes=("-exif", "-gps", "-faces", "-things", "-section")
+            result["photo"] = asset.to_dict(rules=excludes)
 
-        if face.person_id:
-            person = Person.query.get(face.person_id)
-            result["person"] = person.to_dict()
-            result["distance"] = -1
-        else:
-            if len(known_faces) > 0:
-                id, distance = find_closest(face, known_faces)
-                nearest = Face.query.get(id).person
-                result["person"] =  nearest.to_dict()
-                result["distance"] = distance.item()
+            if face.person_id:
+                person = Person.query.get(face.person_id)
+                result["person"] = person.to_dict()
+                result["distance"] = -1
+            else:
+                if len(known_faces) > 0:
+                    id, distance = find_closest(face, known_faces)
+                    nearest = Face.query.get(id).person
+                    result["person"] =  nearest.to_dict()
+                    result["distance"] = distance.item()
 
-        list.append(result)
+            list.append(result)
 
-    result = {
-        "items": list,
-        "pages": paginate.pages,
-        "total": paginate.total
-    }
-    json = flask.jsonify(result)
-    return json    
+        result = {
+            "items": list,
+            "pages": paginate.pages,
+            "total": paginate.total
+        }
+        json = flask.jsonify(result)
+        return json    
 
 
 @blueprint.route('/face/by_asset/<int:asset_id>', methods=['GET'])
 def get_faces_by_asset(asset_id):
-    faces = Asset.query.get(asset_id).faces
-    return jsonify_items(faces)
+    with sub_span("get_faces_by_asset") as span:
+        span.set_attribute("asset_id", asset_id)
+        faces = Asset.query.get(asset_id).faces
+        return jsonify_items(faces)
 
 
 @blueprint.route('/face/ignore/<string:face_ids_str>', methods=['GET'])
 def ignore_face(face_ids_str):
-    face_ids = face_ids_str.split(",")
-    for face_id in face_ids:
-        if face_id:
-            face = Face.query.get(face_id)
-            _ignore_face(face)
-    db.session.commit()
-    return flask.jsonify(True)
+    with sub_span("ignore_face") as span:
+        span.set_attribute("face_ids", face_ids_str)
+        face_ids = face_ids_str.split(",")
+        for face_id in face_ids:
+            if face_id:
+                face = Face.query.get(face_id)
+                _ignore_face(face)
+        db.session.commit()
+        return flask.jsonify(True)
 
 @blueprint.route('/face/reset/<int:face_id>', methods=['GET'])
 def reset_face(face_id):
-    face = Face.query.get(face_id)
-    _reset_face(face)
-    db.session.commit()
-    return flask.jsonify(True)
+    with sub_span("reset_face") as span:
+        span.set_attribute("face_id", face_id)
+        face = Face.query.get(face_id)
+        _reset_face(face)
+        db.session.commit()
+        return flask.jsonify(True)
 
 
 @blueprint.route('/face/allUnknownAndClosest/<int:page>/<int:size>', methods=['GET'])
 def get_unknown_faces_and_closest(page, size):
-    q = Face.query.filter(and_(
-        Face.ignore == False,
-        Face.person_id == None))
-    logger.debug(q)
-    paginate = q.paginate(page=page, per_page=size, error_out=False)
-    max_faces = int(current_app.config['FACE_CLUSTER_MAX_FACES'])
-    known_faces = find_all_classified_known_faces(max_faces) # find_all_classified_faces()
+    with sub_span("get_unknown_faces_and_closest") as span:
+        span.set_attribute("page", page)
+        span.set_attribute("size", size)
+        with sub_span("faces_paging"):
+            q = Face.query.filter(and_(
+                Face.ignore == False,
+                Face.person_id == None))
+            logger.debug(q)
+            paginate = q.paginate(page=page, per_page=size, error_out=False)
+        max_faces = int(current_app.config['FACE_CLUSTER_MAX_FACES'])
+        known_faces = find_all_classified_known_faces(max_faces) # find_all_classified_faces()
 
-    list = []
-    for face in paginate.items:
-        result = face.to_dict()
-        if len(known_faces) > 0:
-            id, distance = find_closest(face, known_faces)
-            nearest = Face.query.get(id).person
-            result["person"] = nearest.to_dict()
-            result["distance"] = distance.item()
-        asset = Asset.query.get(face.asset_id) 
-        excludes=("-exif", "-gps", "-faces", "-things", "-section")
-        result["photo"] = asset.to_dict(rules=excludes)
-        list.append(result)
+        list = []
+        with sub_span("get_closest_faces") as span_p:
+            span_p.set_attribute("size", len(paginate.items))
+            for face in paginate.items:
+                result = face.to_dict()
+                if len(known_faces) > 0:
+                    fc_id, distance = find_closest(face, known_faces)
+                    nearest = Face.query.get(fc_id).person
+                    result["person"] = nearest.to_dict()
+                    result["distance"] = distance.item()
+                with sub_span("asset_info") as span_ai:
+                    span_ai.set_attribute("asset_id", face.asset_id)
+                    asset = Asset.query.get(face.asset_id) 
+                    excludes=("-exif", "-gps", "-faces", "-things", "-section")
+                    result["photo"] = asset.to_dict(rules=excludes)
+                    list.append(result)
 
-    result = {
-        "items": list,
-        "pages": paginate.pages,
-        "total": paginate.total
-    }
-    json = flask.jsonify(result)
-    return json
+        result = {
+            "items": list,
+            "pages": paginate.pages,
+            "total": paginate.total
+        }
+        json = flask.jsonify(result)
+        return json
 
 
 @blueprint.route('/face/facesToConfirm/<int:page>/<int:size>', methods=['GET'])
 def get_faces_to_confirm(page, size):
-    q = Face.query.filter(and_(
-            Face.ignore == False,
-            Face.person_id != None,
-            Face.confidence_level == Face.CLASSIFICATION_CONFIDENCE_LEVEL_MAYBE))
-    logger.debug(q)
-    paginate = q.paginate(page=page, per_page=size, error_out=False)
-    list = []
-    for face in paginate.items:
-        result = face.to_dict()
-        asset = Asset.query.get(face.asset_id) 
-        excludes=("-exif", "-gps", "-faces", "-things", "-section")
-        result["photo"] = asset.to_dict(rules=excludes)
-        list.append(result)
-    result = {
-        "items": list,
-        "pages": paginate.pages,
-        "total": paginate.total
-    }
-    json = flask.jsonify(result)
-    return json
+    with sub_span("get_faces_to_confirm") as span:
+        span.set_attribute("page", page)
+        span.set_attribute("size", size)
+        q = Face.query.filter(and_(
+                Face.ignore == False,
+                Face.person_id != None,
+                Face.confidence_level == Face.CLASSIFICATION_CONFIDENCE_LEVEL_MAYBE))
+        logger.debug(q)
+        paginate = q.paginate(page=page, per_page=size, error_out=False)
+        list = []
+        for face in paginate.items:
+            result = face.to_dict()
+            asset = Asset.query.get(face.asset_id) 
+            excludes=("-exif", "-gps", "-faces", "-things", "-section")
+            result["photo"] = asset.to_dict(rules=excludes)
+            list.append(result)
+        result = {
+            "items": list,
+            "pages": paginate.pages,
+            "total": paginate.total
+        }
+        json = flask.jsonify(result)
+        return json
 
 
 @blueprint.route('/face/all_unknown/<int:page>/<int:size>', methods=['GET'])
 def get_unknown_faces(page, size):
-    q = Face.query.filter(and_(
-        Face.ignore == False,
-        Face.person_id == None))
-    logger.debug(q)
-    return jsonify_pagination(q, size=size, page=page)
+    with sub_span("get_unknown_faces") as span:
+        span.set_attribute("page", page)
+        span.set_attribute("size", size)
+        q = Face.query.filter(and_(
+            Face.ignore == False,
+            Face.person_id == None))
+        logger.debug(q)
+        return jsonify_pagination(q, size=size, page=page)
 
 
 @blueprint.route('/face/nearestKnownFaces/<int:face_id>', methods=['GET'])
 def nearest_known_faces(face_id):
-    logger.debug("Get nearest known faces for %d", face_id)
-    face = Face.query.get(face_id)
-    max_faces = int(current_app.config['FACE_CLUSTER_MAX_FACES'])
+    with sub_span("nearest_known_faces") as span:
+        span.set_attribute("face_id", face_id)
+        logger.debug("Get nearest known faces for %d", face_id)
+        face = Face.query.get(face_id)
+        max_faces = int(current_app.config['FACE_CLUSTER_MAX_FACES'])
 
-    known_faces = find_all_classified_known_faces(max_faces) # find_all_classified_faces()
-    logger.debug("Get %d known faces to compare, now comparing", len(known_faces))
-    result = {}
-    if len(known_faces) > 0:
-        id, distance = find_closest(face, known_faces)
-        logger.debug("Comparison done")
+        known_faces = find_all_classified_known_faces(max_faces) # find_all_classified_faces()
+        logger.debug("Get %d known faces to compare, now comparing", len(known_faces))
+        result = {}
+        if len(known_faces) > 0:
+            id, distance = find_closest(face, known_faces)
+            logger.debug("Comparison done")
 
-        nearest = Face.query.get(id).person
-        result = {"person": nearest.to_dict(), "distance": distance.item()}
-    return flask.jsonify(result)
+            nearest = Face.query.get(id).person
+            result = {"person": nearest.to_dict(), "distance": distance.item()}
+        return flask.jsonify(result)
 
 
 def de_tupelize(list_of_tupel):
