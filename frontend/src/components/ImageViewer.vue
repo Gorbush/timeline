@@ -737,11 +737,13 @@ img {
 
 #faceOutlineCanvas {
     position: absolute;
+    pointer-events: none;
     width: 100%;
     height: 100%;
 }
 #fullImageCanvasHolder {
     position: absolute;
+    pointer-events: none;
     width: 100%;
     height: 100%;
 }
