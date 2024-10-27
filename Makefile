@@ -63,3 +63,13 @@ download-model:
 
 make-dev-dirs:
 	scripts/setup-dev-dirs.sh
+
+
+signoz-start:
+	cd signoz && docker compose -f docker-compose.yaml up -d
+
+signoz-run:
+	cd signoz && docker compose -f docker-compose.yaml up
+
+signoz-down:
+	cd signoz && docker compose -f docker-compose.yaml down
