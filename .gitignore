@@ -15,3 +15,5 @@ backend/occurance.csv
 backend/.env_generated
 backend/nas
 backend/WD
+/signoz/user_scripts/histogramQuantile
+/signoz/user_scripts/histogramQuantile.go
